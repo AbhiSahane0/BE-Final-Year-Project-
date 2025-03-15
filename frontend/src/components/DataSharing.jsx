@@ -37,35 +37,9 @@ const DataSharing = () => {
 
   useEffect(() => {
     PeerConnection.onIncomingConnection((conn) => {
-      conn.on("data", handleReceiveFile);
+      message.info("New peer connected");
     });
   }, []);
-
-  const handleReceiveFile = (receivedData) => {
-    console.log("file recived called");
-    if (receivedData.dataType === DataType.FILE) {
-      notification.open({
-        message: "File Received",
-        description: `You have received a file: ${receivedData.fileName}. Would you like to download it?`,
-        btn: (
-          <Button
-            type="primary"
-            onClick={() => {
-              const url = URL.createObjectURL(receivedData.file);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = receivedData.fileName;
-              a.click();
-              URL.revokeObjectURL(url);
-              notification.close();
-            }}
-          >
-            Download
-          </Button>
-        ),
-      });
-    }
-  };
 
   const handleStartSession = () => {
     dispatch(startPeer());
@@ -89,31 +63,40 @@ const DataSharing = () => {
   const [sendLoading, setSendLoading] = useState(false);
 
   const handleUpload = async () => {
-    if (fileList.length === 0 || !connection.selectedId) {
-      message.warning("Please select both a file and a connection");
+    if (fileList.length === 0) {
+      message.warning("Please select a file");
+      return;
+    }
+    if (!connection.selectedId) {
+      message.warning("Please select a connection");
       return;
     }
 
     try {
       setSendLoading(true);
       const file = fileList[0];
-      
-      // Read file as ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      
+
+      // Show file size
+      const fileSizeKB = (file.size / 1024).toFixed(2);
+      message.info(`Preparing to send: ${file.name} (${fileSizeKB} KB)`);
+
+      // Create blob and send
+      const blob = new Blob([file], { type: file.type });
+      const arrayBuffer = await blob.arrayBuffer();
+
       await PeerConnection.sendConnection(connection.selectedId, {
         dataType: DataType.FILE,
         file: arrayBuffer,
         fileName: file.name,
-        fileType: file.type || 'application/octet-stream'
+        fileType: file.type,
       });
-      
-      setSendLoading(false);
-      message.success("File sent successfully");
+
+      setFileList([]); // Clear file list after successful send
+      message.success(`File sent successfully: ${file.name}`);
     } catch (err) {
-      setSendLoading(false);
-      console.error("File upload error:", err);
       message.error("Failed to send file: " + err.message);
+    } finally {
+      setSendLoading(false);
     }
   };
 

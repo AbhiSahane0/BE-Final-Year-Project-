@@ -33,36 +33,42 @@ const Login = () => {
   const handleLogin = async (values) => {
     try {
       setLoading(true);
+      // First login request
       const response = await axios.post("http://localhost:5000/login", {
         email: values.email,
         password: values.password,
       });
 
       if (response.data.success) {
-        message.success("Login successful!");
+        try {
+          // Verify user and get Peer ID
+          const peerResponse = await axios.post(
+            "http://localhost:5000/verify-user",
+            {
+              email: values.email,
+            }
+          );
 
-        // Fetch Peer ID from database
-        const peerResponse = await axios.post(
-          "http://localhost:5000/verify-user",
-          {
-            email: values.email,
+          const peerId = peerResponse.data.peerId;
+          console.log("Fetched Peer ID:", peerId);
+
+          // Store user details in localStorage
+          if (!localStorage.getItem("peerId")) {
+            localStorage.setItem("peerId", peerId);
           }
-        );
+          if (!localStorage.getItem("username")) {
+            localStorage.setItem("username", response.data.username);
+          }
+          localStorage.setItem("registered", "true");
 
-        const peerId = peerResponse.data.peerId;
-        console.log("Fetched Peer ID:", peerId); // Log the Peer ID
-
-        // Store user details in localStorage if not already present
-        if (!localStorage.getItem("peerId")) {
-          localStorage.setItem("peerId", peerId);
+          // Show success message only after everything is complete
+          message.success("Login successful!");
+          navigate("/DataSharing");
+        } catch (peerError) {
+          // Handle peer verification error separately
+          message.error("Error fetching user details. Please try again.");
+          console.error("Peer verification error:", peerError);
         }
-        if (!localStorage.getItem("username")) {
-          localStorage.setItem("username", response.data.username);
-        }
-        localStorage.setItem("registered", "true");
-
-        // Navigate to Home Page
-        navigate("/DataSharing");
       }
     } catch (error) {
       message.error(error.response?.data?.error || "Login failed");

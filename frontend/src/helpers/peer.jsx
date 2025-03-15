@@ -13,29 +13,63 @@ let connectionMap = new Map(); // To manage peer connections
 // Store received files temporarily
 const receivedFiles = new Map();
 
-// Function to handle file downloads
-const handleDownload = (fileName) => {
-  const fileData = receivedFiles.get(fileName);
-  if (!fileData) {
-    message.error("File not found or already downloaded!");
+// Add a Set to track files being processed
+const processingFiles = new Set();
+
+// Centralized file handling function
+const handleFileDownload = (receivedData) => {
+  // Generate a unique file identifier
+  const fileId = `${receivedData.fileName}-${Date.now()}`;
+
+  // Check if this file is already being processed
+  if (processingFiles.has(fileId)) {
     return;
   }
 
-  // Convert ArrayBuffer to Blob
-  const fileBlob = new Blob([fileData.buffer], { type: fileData.fileType });
+  try {
+    // Mark file as being processed
+    processingFiles.add(fileId);
 
-  // Create a download link
-  const fileURL = URL.createObjectURL(fileBlob);
-  const a = document.createElement("a");
-  a.href = fileURL;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+    // Create a Blob from the file data
+    const blob = new Blob([receivedData.file], { type: receivedData.fileType });
+    const url = URL.createObjectURL(blob);
 
-  // Clean up
-  URL.revokeObjectURL(fileURL);
-  receivedFiles.delete(fileName);
+    // Show notification with download option
+    notification.open({
+      message: "File Received",
+      description: `${receivedData.fileName} (${(
+        receivedData.file.byteLength / 1024
+      ).toFixed(2)} KB)`,
+      btn: (
+        <Button
+          type="primary"
+          onClick={() => {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = receivedData.fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            notification.close(fileId);
+            message.success(`Downloaded: ${receivedData.fileName}`);
+          }}
+        >
+          Download
+        </Button>
+      ),
+      duration: 60, // Will auto-close after 60 seconds
+      key: fileId, // Use unique key for notification
+      onClose: () => {
+        // Cleanup when notification closes
+        processingFiles.delete(fileId);
+        URL.revokeObjectURL(url);
+      },
+    });
+  } catch (error) {
+    message.error(`Failed to process file: ${error.message}`);
+    processingFiles.delete(fileId);
+  }
 };
 
 // Peer Connection Management
@@ -48,61 +82,49 @@ export const PeerConnection = {
         peer = new Peer(peerId || undefined);
 
         peer.on("open", (id) => {
-          console.log("My ID: " + id);
+          console.log("Connected with ID:", id);
+          message.success("Connected successfully!");
           resolve(id);
         });
 
         peer.on("error", (err) => {
-          console.error(err);
-          message.error(err.message);
+          console.error("Peer error:", err);
+          message.error("Connection error: " + err.message);
           reject(err);
         });
       } catch (err) {
-        console.error(err);
         reject(err);
       }
     }),
 
   closePeerSession: () =>
-    new Promise((resolve, reject) => {
-      try {
-        if (peer) {
-          peer.destroy();
-          peer = undefined;
-        }
-        resolve();
-      } catch (err) {
-        console.error(err);
-        reject(err);
+    new Promise((resolve) => {
+      if (peer) {
+        peer.destroy();
+        peer = undefined;
+        connectionMap.clear();
       }
+      resolve();
     }),
 
   connectPeer: (id) =>
     new Promise((resolve, reject) => {
       if (!peer) {
-        reject(new Error("Peer hasn't started yet"));
-        return;
-      }
-      if (connectionMap.has(id)) {
-        reject(new Error("Connection already exists"));
+        reject(new Error("Not connected"));
         return;
       }
       try {
         const conn = peer.connect(id, { reliable: true });
-        if (!conn) {
-          reject(new Error("Connection can't be established"));
-        } else {
-          conn.on("open", () => {
-            console.log("Connected to: " + id);
-            connectionMap.set(id, conn);
-            resolve();
-          });
+        conn.on("open", () => {
+          connectionMap.set(id, conn);
+          message.success("Connected to peer: " + id);
+          resolve();
+        });
 
-          conn.on("error", (err) => {
-            console.error(err);
-            reject(err);
-          });
-        }
+        conn.on("error", (err) => {
+          message.error("Connection error: " + err.message);
+          reject(err);
+        });
       } catch (err) {
         reject(err);
       }
@@ -110,24 +132,18 @@ export const PeerConnection = {
 
   onIncomingConnection: (callback) => {
     peer?.on("connection", (conn) => {
-      console.log("Incoming connection: " + conn.peer);
       connectionMap.set(conn.peer, conn);
+      message.info("Incoming connection from: " + conn.peer);
       callback(conn);
     });
   },
 
   onConnectionDisconnected: (id, callback) => {
-    if (!peer) {
-      throw new Error("Peer hasn't started yet");
-    }
-    if (!connectionMap.has(id)) {
-      throw new Error("Connection doesn't exist");
-    }
     const conn = connectionMap.get(id);
     if (conn) {
       conn.on("close", () => {
-        console.log("Connection closed: " + id);
         connectionMap.delete(id);
+        message.info("Disconnected from: " + id);
         callback();
       });
     }
@@ -135,61 +151,34 @@ export const PeerConnection = {
 
   sendConnection: (id, data) =>
     new Promise((resolve, reject) => {
-      if (!connectionMap.has(id)) {
-        reject(new Error("Connection doesn't exist"));
+      const conn = connectionMap.get(id);
+      if (!conn) {
+        reject(new Error("No connection found"));
         return;
       }
       try {
-        const conn = connectionMap.get(id);
-        if (conn) {
-          conn.send(data);
-          resolve();
+        conn.send(data);
+        if (data.dataType === DataType.FILE) {
+          message.success(`Sending file: ${data.fileName}`);
         }
+        resolve();
       } catch (err) {
+        message.error("Failed to send: " + err.message);
         reject(err);
       }
     }),
 
   onConnectionReceiveData: (id, callback) => {
-    console.log("This function handles data receiving");
-
-    if (!peer) {
-      throw new Error("Peer hasn't started yet");
-    }
-    if (!connectionMap.has(id)) {
-      throw new Error("Connection doesn't exist");
-    }
-
     const conn = connectionMap.get(id);
     if (conn) {
       conn.on("data", (receivedData) => {
-        console.log("Receiving data from " + id);
-
         if (receivedData.dataType === DataType.FILE) {
-          console.log("File received:", receivedData.fileName);
-
-          // Store file data
-          receivedFiles.set(receivedData.fileName, {
-            buffer: receivedData.file,
-            fileType: receivedData.fileType,
-          });
-
-          // Show notification with a download button
-          notification.open({
-            message: "File Received",
-            description: `You have received a file: ${receivedData.fileName}. Click below to download.`,
-            btn: (
-              <Button
-                type="primary"
-                onClick={() => handleDownload(receivedData.fileName)}
-              >
-                Download
-              </Button>
-            ),
-          });
+          handleFileDownload(receivedData);
         }
-
-        callback(receivedData);
+        // Only call callback if it's not a file (to prevent duplicate handling)
+        if (receivedData.dataType !== DataType.FILE) {
+          callback(receivedData);
+        }
       });
     }
   },
