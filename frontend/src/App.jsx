@@ -8,6 +8,8 @@ import Home from "./components/Home";
 import Login from "./components/Login";
 import DataSharing from "./components/DataSharing";
 import OfflineDataSharing from "./components/OfflineDataSharing";
+import AboutUs from "./components/AboutUs";
+import ContactUs from "./components/ContactUs";
 
 const { Content } = Layout;
 
@@ -29,6 +31,8 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/DataSharing" element={<DataSharing />} />
           <Route path="/offline-sharing" element={<OfflineDataSharing />} />
+          <Route path="/about" element={<AboutUs />} />
+          <Route path="/contact" element={<ContactUs />} />
         </Routes>
       </Content>
       <Footer />
