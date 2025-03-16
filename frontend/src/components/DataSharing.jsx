@@ -17,6 +17,8 @@ import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { startPeer, stopPeerSession } from "../store/peer/peerActions";
 import * as connectionAction from "../store/connection/connectionActions";
 import { DataType, PeerConnection } from "../helpers/peer";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 const { Title } = Typography;
 
@@ -34,9 +36,10 @@ const DataSharing = () => {
   const peer = useAppSelector((state) => state.peer);
   const connection = useAppSelector((state) => state.connection);
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    PeerConnection.onIncomingConnection((conn) => {
+    PeerConnection.onIncomingConnection(() => {
       message.info("New peer connected");
     });
   }, []);
@@ -50,12 +53,61 @@ const DataSharing = () => {
     dispatch(stopPeerSession());
   };
 
-  const handleConnectOtherPeer = () => {
-    if (connection.id) {
-      dispatch(connectionAction.connectPeer(connection.id));
-    } else {
+  const handleConnectOtherPeer = async () => {
+    if (!connection.id) {
       message.warning("Please enter ID");
-      alert("Please enter ID");
+      return;
+    }
+
+    try {
+      // First try to connect to online peer
+      dispatch(connectionAction.connectPeer(connection.id));
+
+      // If connection fails (peer is offline), check database
+      const response = await axios.post(
+        "http://localhost:5000/check-user-status",
+        {
+          peerId: connection.id,
+        }
+      );
+
+      if (response.data.found) {
+        // Show confirmation modal for offline sharing
+        notification.info({
+          message: "User is Offline",
+          description:
+            "This user exists but is currently offline. Would you like to proceed with offline data sharing?",
+          duration: 0,
+          btn: (
+            <Space>
+              <Button
+                type="primary"
+                size="small"
+                onClick={() => {
+                  notification.destroy();
+                  navigate("/offline-sharing", {
+                    state: {
+                      targetPeerId: connection.id,
+                      targetUsername: response.data.username,
+                    },
+                  });
+                }}
+              >
+                Go to Offline Sharing
+              </Button>
+              <Button size="small" onClick={() => notification.destroy()}>
+                Cancel
+              </Button>
+            </Space>
+          ),
+        });
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        message.error("User not found");
+      } else {
+        message.error("Connection failed: " + error.message);
+      }
     }
   };
 

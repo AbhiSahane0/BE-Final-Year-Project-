@@ -241,12 +241,14 @@ app.post("/register", async (req, res) => {
         .json({ error: "Username is taken : Please use differnt one" });
     }
 
+    // Generate peer ID only here
     const peerId = `peer-${Math.random().toString(36).substring(2, 15)}`;
     console.log(`✅ Generated Peer ID: ${peerId}`);
 
     const newUser = new User({ username, email, password, peerId });
     await newUser.save();
 
+    // Send the generated peerId back
     res.status(201).json({
       message: "User registered successfully",
       username,
@@ -309,6 +311,54 @@ app.post("/verify-user", async (req, res) => {
   } catch (error) {
     console.error("Error verifying user:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add this endpoint to check user status
+app.post("/check-user-status", async (req, res) => {
+  try {
+    const { peerId } = req.body;
+
+    // First check if user exists in database
+    const user = await User.findOne({ peerId });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    // Return user data
+    res.json({
+      found: true,
+      username: user.username,
+      email: user.email,
+      peerId: user.peerId,
+    });
+  } catch (error) {
+    console.error("Error checking user status:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add this endpoint to verify peer ID consistency
+app.post("/verify-peer-id", async (req, res) => {
+  try {
+    const { email, peerId } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const isMatch = user.peerId === peerId;
+    res.json({
+      match: isMatch,
+      storedPeerId: user.peerId,
+      providedPeerId: peerId,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
