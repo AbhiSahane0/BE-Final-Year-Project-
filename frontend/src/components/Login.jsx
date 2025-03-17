@@ -7,6 +7,7 @@ import {
   Typography,
   Divider,
   Tooltip,
+  Card,
 } from "antd";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -14,13 +15,42 @@ import {
   MailOutlined,
   LockOutlined,
   InfoCircleOutlined,
+  SecurityScanOutlined,
+  LoginOutlined,
+  UserAddOutlined,
 } from "@ant-design/icons";
+import { motion } from "framer-motion";
 
 const { Title, Text, Paragraph } = Typography;
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [form] = Form.useForm();
+
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.6,
+        ease: "easeOut",
+        when: "beforeChildren",
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.4 },
+    },
+  };
 
   // Check if user is already registered
   useEffect(() => {
@@ -78,118 +108,192 @@ const Login = () => {
   };
 
   return (
-    <div
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={containerVariants}
       style={{
-        maxWidth: 400,
-        margin: "auto",
-        padding: 20,
-        marginTop: 150,
-        background: "white",
-        borderRadius: 12,
-        boxShadow: "0 6px 16px rgba(0,0,0,0.08)",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        background: "linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%)",
       }}
     >
-      <div style={{ marginBottom: 24 }}>
-        <Title
-          level={2}
-          style={{ textAlign: "center", color: "#1890ff", margin: 0 }}
-        >
-          Welcome Back
-        </Title>
-        <Text
-          type="secondary"
-          style={{ display: "block", textAlign: "center", marginTop: 8 }}
-        >
-          Log in to your secure P2P data sharing account
-        </Text>
-      </div>
-
-      <Form onFinish={handleLogin}>
-        <Form.Item
-          name="email"
-          rules={[
-            { required: true, message: "Enter your Email" },
-            { type: "email", message: "Invalid Email" },
-          ]}
-        >
-          <Input
-            prefix={<MailOutlined style={{ color: "#bfbfbf" }} />}
-            placeholder="Email"
-            size="large"
-            style={{ borderRadius: 6 }}
-            suffix={
-              <Tooltip title="Enter the email you used to register">
-                <InfoCircleOutlined style={{ color: "#bfbfbf" }} />
-              </Tooltip>
-            }
-          />
-        </Form.Item>
-
-        <Form.Item
-          name="password"
-          rules={[{ required: true, message: "Enter your Password" }]}
-        >
-          <Input.Password
-            prefix={<LockOutlined style={{ color: "#bfbfbf" }} />}
-            placeholder="Password"
-            size="large"
-            style={{ borderRadius: 6 }}
-            suffix={
-              <Tooltip title="Enter your secure password">
-                <InfoCircleOutlined style={{ color: "#bfbfbf" }} />
-              </Tooltip>
-            }
-          />
-        </Form.Item>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            marginBottom: 16,
-            gap: 8,
-          }}
-        >
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            style={{ borderRadius: 6, flex: 1 }}
-            size="large"
-          >
-            Login
-          </Button>
-          <Button
-            type="default"
-            onClick={() => navigate("/")}
-            style={{ borderRadius: 6, flex: 1 }}
-            size="large"
-          >
-            Register
-          </Button>
-        </div>
-      </Form>
-
-      <Divider plain style={{ margin: "24px 0 16px" }}>
-        <Text type="secondary">Secure P2P Data Sharing</Text>
-      </Divider>
-
-      <Text
-        type="secondary"
-        style={{ display: "block", textAlign: "center", fontSize: 12 }}
+      <Card
+        style={{
+          width: "100%",
+          maxWidth: 440,
+          borderRadius: 16,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
+          overflow: "hidden",
+          border: "none",
+        }}
       >
-        Access your network to securely share data with peers worldwide
-      </Text>
+        <motion.div variants={itemVariants}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 30,
+            }}
+          >
+            <SecurityScanOutlined
+              style={{
+                fontSize: 28,
+                color: "#1890ff",
+                marginRight: 12,
+              }}
+            />
+            <Title
+              level={2}
+              style={{
+                margin: 0,
+                background: "linear-gradient(90deg, #1890ff 0%, #096dd9 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Welcome Back
+            </Title>
+          </div>
+          <Text
+            type="secondary"
+            style={{
+              display: "block",
+              textAlign: "center",
+              marginBottom: 30,
+              fontSize: 16,
+            }}
+          >
+            Log in to your secure P2P data sharing account
+          </Text>
+        </motion.div>
 
-      <Paragraph style={{ textAlign: "center", marginTop: 12 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          Your data stays private with direct peer-to-peer transfers.
-          <Tooltip title="No third parties can access your shared files">
-            <InfoCircleOutlined style={{ marginLeft: 4, color: "#bfbfbf" }} />
-          </Tooltip>
-        </Text>
-      </Paragraph>
-    </div>
+        <Form form={form} onFinish={handleLogin} layout="vertical">
+          <motion.div variants={itemVariants}>
+            <Form.Item
+              name="email"
+              rules={[
+                { required: true, message: "Enter your Email" },
+                { type: "email", message: "Invalid Email" },
+              ]}
+            >
+              <Input
+                prefix={<MailOutlined style={{ color: "#1890ff" }} />}
+                placeholder="Email"
+                size="large"
+                style={{
+                  borderRadius: 8,
+                  height: "50px",
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.05)",
+                }}
+                suffix={
+                  <Tooltip title="Enter the email you used to register">
+                    <InfoCircleOutlined style={{ color: "#bfbfbf" }} />
+                  </Tooltip>
+                }
+              />
+            </Form.Item>
+          </motion.div>
+
+          <motion.div variants={itemVariants}>
+            <Form.Item
+              name="password"
+              rules={[{ required: true, message: "Enter your Password" }]}
+            >
+              <Input.Password
+                prefix={<LockOutlined style={{ color: "#1890ff" }} />}
+                placeholder="Password"
+                size="large"
+                style={{
+                  borderRadius: 8,
+                  height: "50px",
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.05)",
+                }}
+                suffix={
+                  <Tooltip title="Enter your secure password">
+                    <InfoCircleOutlined style={{ color: "#bfbfbf" }} />
+                  </Tooltip>
+                }
+              />
+            </Form.Item>
+          </motion.div>
+
+          <motion.div
+            variants={itemVariants}
+            style={{
+              display: "flex",
+              gap: 12,
+              marginBottom: 24,
+            }}
+          >
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              icon={<LoginOutlined />}
+              style={{
+                flex: 1,
+                height: "50px",
+                borderRadius: 8,
+                background: "linear-gradient(90deg, #1890ff 0%, #096dd9 100%)",
+                border: "none",
+                boxShadow: "0 5px 15px rgba(24, 144, 255, 0.3)",
+              }}
+              size="large"
+            >
+              Login
+            </Button>
+            <Button
+              type="default"
+              onClick={() => navigate("/Register")}
+              icon={<UserAddOutlined />}
+              style={{
+                flex: 1,
+                height: "50px",
+                borderRadius: 8,
+                borderColor: "#1890ff",
+                color: "#1890ff",
+              }}
+              size="large"
+            >
+              Register
+            </Button>
+          </motion.div>
+        </Form>
+
+        <motion.div variants={itemVariants}>
+          <Divider style={{ margin: "24px 0" }}>
+            <Text type="secondary" style={{ fontSize: 14 }}>
+              Secure P2P Data Sharing
+            </Text>
+          </Divider>
+
+          <Card
+            style={{
+              background: "linear-gradient(135deg, #f6f9fc 0%, #eef2f7 100%)",
+              borderRadius: 12,
+              border: "1px solid #e6f7ff",
+              marginTop: 16,
+            }}
+          >
+            <Paragraph style={{ textAlign: "center", margin: 0 }}>
+              <Text style={{ fontSize: 14 }}>
+                Your data stays private with direct peer-to-peer transfers
+                <Tooltip title="No third parties can access your shared files">
+                  <InfoCircleOutlined
+                    style={{ marginLeft: 8, color: "#1890ff" }}
+                  />
+                </Tooltip>
+              </Text>
+            </Paragraph>
+          </Card>
+        </motion.div>
+      </Card>
+    </motion.div>
   );
 };
 

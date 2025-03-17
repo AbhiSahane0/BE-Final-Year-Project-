@@ -217,47 +217,94 @@ app.post("/verify-otp", async (req, res) => {
 app.post("/register", async (req, res) => {
   try {
     const { username, email, password } = req.body;
+    console.log("📝 Registration request received:", { username, email });
 
+    // Validation
     if (!username || !email || !password) {
-      return res.status(400).json({ error: "All fields are required" });
+      console.log("❌ Missing required fields");
+      return res.status(400).json({
+        success: false,
+        error: "All fields are required",
+      });
     }
 
     if (!isValidEmail(email)) {
-      return res.status(400).json({ error: "Invalid email format" });
+      console.log("❌ Invalid email format");
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email format",
+      });
     }
 
-    // Check if user exists
-    const existingEmail = await User.findOne({ email });
-    if (existingEmail) {
-      return res
-        .status(400)
-        .json({ error: "Email is already registered try Login" });
+    try {
+      // Check existing users
+      console.log("🔍 Checking for existing users...");
+      const [existingEmail, existingUsername] = await Promise.all([
+        User.findOne({ email }),
+        User.findOne({ username }),
+      ]);
+
+      if (existingEmail) {
+        console.log("❌ Email already registered");
+        return res.status(400).json({
+          success: false,
+          error: "Email is already registered. Try Login",
+        });
+      }
+
+      if (existingUsername) {
+        console.log("❌ Username already taken");
+        return res.status(400).json({
+          success: false,
+          error: "Username is taken. Please use a different one",
+        });
+      }
+
+      // Generate peer ID
+      const peerId = `peer-${Math.random().toString(36).substring(2, 15)}`;
+      console.log("✅ Generated Peer ID:", peerId);
+
+      // Create and save user
+      const newUser = new User({
+        username,
+        email,
+        password,
+        peerId,
+      });
+
+      console.log("💾 Saving to database...");
+      const savedUser = await newUser.save();
+
+      console.log("✅ User saved successfully:", {
+        id: savedUser._id,
+        username: savedUser.username,
+        email: savedUser.email,
+        peerId: savedUser.peerId,
+      });
+
+      // Send success response
+      return res.status(201).json({
+        success: true,
+        message: "User registered successfully",
+        username: savedUser.username,
+        email: savedUser.email,
+        peerId: savedUser.peerId,
+      });
+    } catch (dbError) {
+      console.error("❌ Database operation failed:", dbError);
+      throw dbError; // Re-throw to be caught by outer try-catch
     }
-
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      return res
-        .status(400)
-        .json({ error: "Username is taken : Please use differnt one" });
-    }
-
-    // Generate peer ID only here
-    const peerId = `peer-${Math.random().toString(36).substring(2, 15)}`;
-    console.log(`✅ Generated Peer ID: ${peerId}`);
-
-    const newUser = new User({ username, email, password, peerId });
-    await newUser.save();
-
-    // Send the generated peerId back
-    res.status(201).json({
-      message: "User registered successfully",
-      username,
-      email,
-      peerId,
-    });
   } catch (error) {
-    console.error("❌ Error registering user:", error.message);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ Registration error:", {
+      message: error.message,
+      stack: error.stack,
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: "Registration failed. Please try again.",
+      details: error.message,
+    });
   }
 });
 
