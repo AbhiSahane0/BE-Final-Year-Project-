@@ -10,7 +10,6 @@ import {
   InfoCircleOutlined,
   MailOutlined,
 } from "@ant-design/icons";
-import { message } from "antd";
 
 const { Header } = Layout;
 const { Title } = Typography;
