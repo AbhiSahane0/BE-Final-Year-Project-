@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
+import { message } from "antd";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -94,6 +95,16 @@ function Home() {
     borderRadius: "12px",
     padding: isMobile ? "20px" : isTablet ? "30px" : "40px",
     boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
+  };
+
+  const handleShareNowClick = () => {
+    const isRegistered = localStorage.getItem("registered") === "true";
+    if (isRegistered) {
+      navigate("/DataSharing");
+    } else {
+      message.info("Please register first to start sharing files");
+      navigate("/register");
+    }
   };
 
   return (
@@ -189,7 +200,7 @@ function Home() {
                     borderRadius: "8px",
                     width: isMobile ? "100%" : "auto",
                   }}
-                  onClick={() => navigate("/DataSharing")}
+                  onClick={handleShareNowClick}
                 >
                   Share Now
                 </Button>
@@ -444,7 +455,7 @@ function Home() {
             width: isMobile ? "100%" : "auto",
             maxWidth: isMobile ? "250px" : "auto",
           }}
-          onClick={() => navigate("/login")}
+          onClick={handleShareNowClick}
         >
           Start Sharing Now
         </Button>

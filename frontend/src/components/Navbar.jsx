@@ -10,6 +10,7 @@ import {
   InfoCircleOutlined,
   MailOutlined,
 } from "@ant-design/icons";
+import { message } from "antd";
 
 const { Header } = Layout;
 const { Title } = Typography;
@@ -52,6 +53,17 @@ const Navbar = () => {
     if (isMobile) {
       setVisible(false);
     }
+  };
+
+  const handleNavigation = (path) => {
+    if (path === "/DataSharing") {
+      const isRegistered = localStorage.getItem("registered") === "true";
+      if (!isRegistered) {
+        // message.info("Please register first to access file sharing");
+        return "/register";
+      }
+    }
+    return path;
   };
 
   return (
@@ -104,7 +116,7 @@ const Navbar = () => {
         >
           {menuItems.map((item) => (
             <Menu.Item key={item.key} icon={item.icon}>
-              <Link to={item.key}>{item.label}</Link>
+              <Link to={handleNavigation(item.key)}>{item.label}</Link>
             </Menu.Item>
           ))}
         </Menu>
@@ -173,7 +185,7 @@ const Navbar = () => {
               style={{ height: "50px", display: "flex", alignItems: "center" }}
             >
               <Link
-                to={item.key}
+                to={handleNavigation(item.key)}
                 onClick={handleMenuClick}
                 style={{ fontSize: "16px" }}
               >
