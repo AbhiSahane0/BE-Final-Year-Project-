@@ -182,4 +182,29 @@ export const PeerConnection = {
       });
     }
   },
+
+  onTransferError: (callback) => {
+    if (!peer) return;
+
+    peer.on("error", (error) => {
+      console.error("Transfer error:", error);
+      callback(error);
+    });
+  },
+
+  onConnectionError: (id, callback) => {
+    const conn = connectionMap.get(id);
+    if (conn) {
+      conn.on("error", (error) => {
+        console.error(`Connection error with peer ${id}:`, error);
+        message.error(`Connection error with peer ${id}`);
+        callback(error);
+      });
+    }
+  },
+
+  isPeerConnected: (id) => {
+    const conn = connectionMap.get(id);
+    return conn && conn.open;
+  },
 };

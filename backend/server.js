@@ -6,6 +6,10 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const Redis = require("ioredis");
 const nodemailer = require("nodemailer");
+const { pollMessageQueue, POLLING_INTERVAL } = require("./Polling"); // Import polling logic and constants
+const FormData = require("form-data");
+const fs = require("fs");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
@@ -44,7 +48,9 @@ try {
 }
 
 // Import User Model
-const User = require("./Users");
+const User = require("./models/Users");
+const MessageQueue = require("./models/MessageQueue");
+const OnlineUsers = require("./models/OnlineUsers");
 
 // Validate email function
 function isValidEmail(email) {
@@ -422,5 +428,209 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Start the server
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// API Endpoint: Get User Status
+app.get("/api/user/status/:peerId", async (req, res) => {
+  try {
+    const { peerId } = req.params;
+
+    // First check if user exists in database
+    const user = await User.findOne({ peerId });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check if user has an active socket connection
+    const isSocketConnected = activeConnections.has(peerId);
+
+    // Check online status from OnlineUsers collection
+    const onlineUser = await OnlineUsers.findOne({ peerId });
+
+    // User is considered online if they have an active socket connection
+    // and their status is 'online' in the database
+    const isOnline = isSocketConnected && onlineUser?.status === "online";
+
+    return res.json({
+      online: isOnline,
+      lastSeen: onlineUser?.lastSeen || null,
+      username: user.username,
+    });
+  } catch (error) {
+    console.error("Error getting user status:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Socket.IO setup
+const server = require("http").createServer(app);
+const io = require("socket.io")(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
+
+// Map to track active socket connections
+const activeConnections = new Map();
+
+io.on("connection", async (socket) => {
+  console.log("🔌 New socket connection");
+  let currentUser = null;
+
+  socket.on("user-online", async (userData) => {
+    try {
+      currentUser = userData;
+      activeConnections.set(userData.peerId, socket.id);
+
+      // Update or create online user record
+      const onlineUser = await OnlineUsers.findOneAndUpdate(
+        { peerId: userData.peerId },
+        {
+          peerId: userData.peerId,
+          username: userData.username,
+          email: userData.email,
+          status: "online",
+          lastSeen: new Date(),
+          socketId: socket.id,
+        },
+        { upsert: true, new: true }
+      );
+      console.log(`✅ User ${userData.username} is now online`);
+    } catch (error) {
+      console.error("Error updating online status:", error);
+    }
+  });
+
+  socket.on("heartbeat", async ({ peerId }) => {
+    try {
+      if (activeConnections.get(peerId) === socket.id) {
+        await OnlineUsers.findOneAndUpdate(
+          { peerId },
+          {
+            lastSeen: new Date(),
+            status: "online",
+          }
+        );
+      }
+    } catch (error) {
+      console.error("Error updating heartbeat:", error);
+    }
+  });
+
+  socket.on("user-offline", async ({ peerId }) => {
+    try {
+      if (activeConnections.get(peerId) === socket.id) {
+        await OnlineUsers.findOneAndUpdate(
+          { peerId },
+          {
+            status: "offline",
+            lastSeen: new Date(),
+          }
+        );
+        activeConnections.delete(peerId);
+        console.log(`User ${peerId} marked as offline`);
+      }
+    } catch (error) {
+      console.error("Error updating offline status:", error);
+    }
+  });
+
+  socket.on("disconnect", async () => {
+    try {
+      if (currentUser) {
+        const { peerId } = currentUser;
+        if (activeConnections.get(peerId) === socket.id) {
+          await OnlineUsers.findOneAndUpdate(
+            { peerId },
+            {
+              status: "offline",
+              lastSeen: new Date(),
+            }
+          );
+          activeConnections.delete(peerId);
+          console.log(`User ${currentUser.username} disconnected`);
+        }
+      }
+    } catch (error) {
+      console.error("Error handling disconnect:", error);
+    }
+  });
+});
+
+// Start polling mechanism
+const poll = pollMessageQueue(io);
+setInterval(poll, POLLING_INTERVAL);
+
+// API endpoint to upload file to IPFS and queue for offline delivery
+app.post("/api/share/offline", async (req, res) => {
+  try {
+    const { senderPeerId, senderUsername, receiverPeerId, file } = req.body;
+
+    // Check if receiver exists
+    const receiver = await User.findOne({ peerId: receiverPeerId });
+    if (!receiver) {
+      return res.status(404).json({ error: "Receiver not found" });
+    }
+
+    // Upload to IPFS using Pinata
+    const formData = new FormData();
+    formData.append("file", fs.createReadStream(file.path));
+
+    const pinataRes = await axios.post(
+      "https://api.pinata.cloud/pinning/pinFileToIPFS",
+      formData,
+      {
+        maxBodyLength: "Infinity",
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${formData._boundary}`,
+          Authorization: `Bearer ${process.env.PINATA_API_KEY}`,
+        },
+      }
+    );
+
+    const ipfsHash = pinataRes.data.IpfsHash;
+
+    // Create message queue entry
+    const message = new MessageQueue({
+      senderPeerId,
+      senderUsername,
+      receiverPeerId,
+      ipfsHash,
+      fileName: file.originalname,
+      fileSize: file.size,
+    });
+
+    await message.save();
+
+    // Clean up temporary file
+    fs.unlinkSync(file.path);
+
+    res.json({
+      message: "File queued for delivery",
+      ipfsHash,
+    });
+  } catch (error) {
+    console.error("❌ Error queueing file for delivery:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// API endpoint to get pending messages for a user
+app.get("/api/messages/pending/:peerId", async (req, res) => {
+  try {
+    const { peerId } = req.params;
+    const messages = await MessageQueue.find({
+      receiverPeerId: peerId,
+      status: "pending",
+    }).sort({ timestamp: -1 });
+
+    res.json(messages);
+  } catch (error) {
+    console.error("❌ Error fetching pending messages:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Use server instead of app for listening
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
