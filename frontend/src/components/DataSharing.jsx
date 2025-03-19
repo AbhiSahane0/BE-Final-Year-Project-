@@ -140,30 +140,30 @@ const DataSharing = () => {
         return;
       }
 
-      // If no P2P connection, try to establish one
-      try {
-        await dispatch(connectionAction.connectPeer(connection.id));
-        message.success("Connected to peer successfully!");
-        return;
-      } catch (peerError) {
-        console.error("P2P connection failed:", peerError);
-      }
+      // Debugging: Log the current connection list
+      console.log("Current connection list:", connection.list);
 
-      // If P2P connection fails, check socket status
-      const response = await axios.get(
-        `${BACKEND_URL}/api/user/status/${connection.id}`
-      );
+      // Check if the peer is in the connection list (online)
+      const isPeerOnline = connection.list.includes(connection.id);
 
-      if (response.data.online) {
-        // User is online but P2P connection failed
-        message.error("Failed to establish P2P connection. Please try again.");
+      if (isPeerOnline) {
+        // User is online, try P2P connection
+        try {
+          await dispatch(connectionAction.connectPeer(connection.id));
+          message.success("Connected to peer successfully!");
+          return;
+        } catch (peerError) {
+          console.error("P2P connection failed:", peerError);
+          message.error(
+            "Failed to establish P2P connection. Please try again."
+          );
+        }
       } else {
-        // Show confirmation modal for offline sharing
+        // User is not in the connection list, show offline sharing prompt
         notification.info({
           message: "User is Offline",
-          description: `This user was last seen ${new Date(
-            response.data.lastSeen
-          ).toLocaleString()}. Would you like to proceed with offline data sharing?`,
+          description:
+            "This user is currently offline. Would you like to proceed with offline data sharing?",
           duration: 0,
           btn: (
             <Space>
@@ -175,7 +175,7 @@ const DataSharing = () => {
                   navigate("/offline-sharing", {
                     state: {
                       targetPeerId: connection.id,
-                      targetUsername: response.data.username,
+                      targetUsername: connection.id, // Since we don't have username in this context
                     },
                   });
                 }}
@@ -190,11 +190,7 @@ const DataSharing = () => {
         });
       }
     } catch (error) {
-      if (error.response?.status === 404) {
-        message.error("User not found");
-      } else {
-        message.error("Connection failed: " + error.message);
-      }
+      message.error("Connection failed: " + error.message);
     }
   };
 
