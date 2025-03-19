@@ -222,7 +222,7 @@ const DataSharing = () => {
         );
       }
 
-      // Show file size
+      // Show file size to user
       const fileSizeKB = (file.size / 1024).toFixed(2);
       message.info(`Preparing to send: ${file.name} (${fileSizeKB} KB)`);
 
