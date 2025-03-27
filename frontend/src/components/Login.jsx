@@ -83,12 +83,12 @@ const Login = () => {
           console.log("Fetched Peer ID:", peerId);
 
           // Store user details in localStorage
-          if (!localStorage.getItem("peerId")) {
-            localStorage.setItem("peerId", peerId);
-          }
-          if (!localStorage.getItem("username")) {
-            localStorage.setItem("username", response.data.username);
-          }
+          const userData = {
+            peerId,
+            username: response.data.username,
+            email: values.email,
+          };
+          localStorage.setItem("userData", JSON.stringify(userData));
           localStorage.setItem("registered", "true");
 
           // Show success message only after everything is complete

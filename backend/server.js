@@ -710,6 +710,18 @@ app.post("/api/share/offline", upload.single("file"), async (req, res) => {
 
     try {
       console.log("🔄 Sending request to Pinata...");
+
+      // Verify API key exists
+      if (!process.env.PINATA_API_KEY) {
+        console.error("❌ Pinata API key not found in environment variables");
+        throw new Error("IPFS service configuration error");
+      }
+
+      console.log(
+        "🔑 Using Pinata API key:",
+        process.env.PINATA_API_KEY.substring(0, 5) + "..."
+      );
+
       const pinataResponse = await axios.post(
         "https://api.pinata.cloud/pinning/pinFileToIPFS",
         pinataFormData,
@@ -723,22 +735,22 @@ app.post("/api/share/offline", upload.single("file"), async (req, res) => {
       );
 
       if (!pinataResponse.data || !pinataResponse.data.IpfsHash) {
-        console.log(
+        console.error(
           "❌ Failed to get IPFS hash from Pinata response:",
           pinataResponse.data
         );
         throw new Error("Failed to upload to IPFS");
       }
 
-      const ipfsHash = pinataResponse.data.IpfsHash;
-      console.log(`✅ File uploaded to IPFS with hash: ${ipfsHash}`);
+      console.log("✅ File uploaded to IPFS successfully");
+      console.log("📝 IPFS Hash:", pinataResponse.data.IpfsHash);
 
       // Create message queue entry
       const message = new MessageQueue({
         senderPeerId,
         senderUsername,
         receiverPeerId,
-        ipfsHash,
+        ipfsHash: pinataResponse.data.IpfsHash,
         fileName: req.file.originalname,
         fileSize: req.file.size,
       });
@@ -754,8 +766,8 @@ app.post("/api/share/offline", upload.single("file"), async (req, res) => {
       res.status(200).json({
         success: true,
         message: "File queued for delivery",
-        ipfsHash,
-        ipfsUrl: `https://gateway.pinata.cloud/ipfs/${ipfsHash}`,
+        ipfsHash: pinataResponse.data.IpfsHash,
+        ipfsUrl: `https://gateway.pinata.cloud/ipfs/${pinataResponse.data.IpfsHash}`,
       });
     } catch (pinataError) {
       console.error("❌ Error uploading to IPFS:", pinataError.message);

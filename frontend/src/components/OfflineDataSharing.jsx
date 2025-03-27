@@ -99,21 +99,17 @@ function OfflineDataSharing() {
       formData.append("senderUsername", userData.username);
       formData.append("receiverPeerId", targetPeerId);
 
-      const response = await axios.post(
-        `${BACKEND_URL}/api/share/offline`,
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            setUploadProgress(percentCompleted);
-          },
-        }
-      );
+      await axios.post(`${BACKEND_URL}/api/share/offline`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          setUploadProgress(percentCompleted);
+        },
+      });
 
       message.success(`File queued for delivery to ${targetUsername}`);
       setFileList([]);
@@ -126,11 +122,22 @@ function OfflineDataSharing() {
       });
     } catch (error) {
       console.error("Upload error:", error);
-      message.error(
-        error.response?.data?.error ||
-          error.message ||
-          "Failed to upload file. Please try again."
-      );
+
+      // Handle specific error cases
+      if (error.response?.status === 401) {
+        message.error(
+          "Authentication error. Please check your API key configuration."
+        );
+      } else if (error.response?.status === 500) {
+        const errorMessage =
+          error.response?.data?.error || "Server error occurred";
+        message.error(`Upload failed: ${errorMessage}`);
+        console.error("Server error details:", error.response?.data);
+      } else if (error.message === "File type not allowed") {
+        message.error(error.message);
+      } else {
+        message.error("Failed to upload file. Please try again.");
+      }
     } finally {
       setUploading(false);
     }

@@ -11,6 +11,9 @@ import {
   Typography,
   Upload,
   notification,
+  Badge,
+  List,
+  Progress,
 } from "antd";
 import { CopyOutlined, UploadOutlined } from "@ant-design/icons";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
@@ -20,6 +23,7 @@ import { DataType, PeerConnection } from "../helpers/peer";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import socketManager from "../helpers/socket";
+import offlineMessageManager from "../helpers/offlineMessages.jsx";
 
 const { Title, Text } = Typography;
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
@@ -66,6 +70,34 @@ const isFileTypeAllowed = (file) => {
   return true;
 };
 
+// Right before the DataSharing component declaration
+async function checkUserOfflineStatus(peerId) {
+  const BACKEND_URL =
+    import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+  try {
+    console.log("Checking offline status for:", peerId);
+    const response = await axios.get(
+      `${BACKEND_URL}/api/user/status/${peerId}`
+    );
+    console.log("User status response:", response.data);
+
+    // Return the response data for the caller to handle
+    return {
+      success: true,
+      isOnline: response.data.online,
+      username: response.data.username,
+      lastSeen: response.data.lastSeen,
+    };
+  } catch (error) {
+    console.error("Error checking user status:", error);
+    return {
+      success: false,
+      error: error.message,
+      status: error.response?.status,
+    };
+  }
+}
+
 function getItem(label, key, icon, children, type) {
   return {
     key,
@@ -81,41 +113,42 @@ const DataSharing = () => {
   const connection = useAppSelector((state) => state.connection);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+  const storedUserData = localStorage.getItem("userData") || "{}";
+  const userData = JSON.parse(storedUserData);
 
   useEffect(() => {
     // Handle incoming connections
     PeerConnection.onIncomingConnection(() => {
-      message.info("New peer connected");
+      // Silent connection handling
     });
 
     // Handle connection errors
-    PeerConnection.onConnectionError(connection.selectedId, (error) => {
-      message.error(`Connection error: ${error.message}`);
+    PeerConnection.onConnectionError(connection.selectedId, () => {
       dispatch(connectionAction.removePeer(connection.selectedId));
     });
 
     // Handle connection closed
     PeerConnection.onConnectionDisconnected(connection.selectedId, () => {
-      message.warning("Peer connection closed");
       dispatch(connectionAction.removePeer(connection.selectedId));
     });
 
     // Handle transfer errors
-    PeerConnection.onTransferError((error) => {
-      message.error(`Transfer failed: ${error.message}`);
+    PeerConnection.onTransferError(() => {
       setFileList([]);
       setSendLoading(false);
     });
 
-    if (userData.peerId) {
+    if (userData && userData.peerId) {
       socketManager.connect(userData);
+      // Initialize offline message manager
+      offlineMessageManager.init(userData);
     }
 
     return () => {
       socketManager.disconnect();
+      offlineMessageManager.cleanup();
     };
-  }, [userData.peerId, connection.selectedId, dispatch]);
+  }, [connection.selectedId, dispatch]);
 
   const handleStartSession = () => {
     dispatch(startPeer());
@@ -140,60 +173,62 @@ const DataSharing = () => {
         return;
       }
 
-      // If no P2P connection, try to establish one
+      // Try P2P connection first without checking status
       try {
+        console.log("Attempting P2P connection first");
         await dispatch(connectionAction.connectPeer(connection.id));
         message.success("Connected to peer successfully!");
         return;
       } catch (peerError) {
-        console.error("P2P connection failed:", peerError);
-      }
+        // console.error("P2P connection failed:", peerError);
 
-      // If P2P connection fails, check socket status
-      const response = await axios.get(
-        `${BACKEND_URL}/api/user/status/${connection.id}`
-      );
+        // Check if this is an offline peer error
+        if (peerError.message === "OFFLINE_PEER") {
+          console.log("Detected offline peer, checking status");
 
-      if (response.data.online) {
-        // User is online but P2P connection failed
-        message.error("Failed to establish P2P connection. Please try again.");
-      } else {
-        // Show confirmation modal for offline sharing
-        notification.info({
-          message: "User is Offline",
-          description: `This user was last seen ${new Date(
-            response.data.lastSeen
-          ).toLocaleString()}. Would you like to proceed with offline data sharing?`,
-          duration: 0,
-          btn: (
-            <Space>
-              <Button
-                type="primary"
-                size="small"
-                onClick={() => {
-                  notification.destroy();
-                  navigate("/offline-sharing", {
-                    state: {
-                      targetPeerId: connection.id,
-                      targetUsername: response.data.username,
-                    },
-                  });
-                }}
-              >
-                Go to Offline Sharing
-              </Button>
-              <Button size="small" onClick={() => notification.destroy()}>
-                Cancel
-              </Button>
-            </Space>
-          ),
-        });
+          // Check user status to get username if possible
+          const statusResult = await checkUserOfflineStatus(connection.id);
+
+          // Show warning message about offline status
+          message.warning({
+            content: "Peer is currently offline",
+            duration: 2,
+          });
+
+          // Use username from status check if available
+          const username = statusResult.success
+            ? statusResult.username
+            : "Unknown User";
+
+          // Wait 1.5 seconds before showing redirect message
+          setTimeout(() => {
+            message.info({
+              content: "Redirecting to offline sharing...",
+              duration: 1.5,
+            });
+
+            // Wait another 1.5 seconds before redirecting
+            setTimeout(() => {
+              navigate("/offline-sharing", {
+                state: {
+                  targetPeerId: connection.id,
+                  targetUsername: username,
+                },
+              });
+            }, 1500);
+          }, 1500);
+          return;
+        }
+
+        // If error is not an offline error, just show generic message
+        message.error("Failed to establish connection. Please try again.");
       }
     } catch (error) {
+      console.error("Connection attempt failed:", error);
       if (error.response?.status === 404) {
         message.error("User not found");
       } else {
-        message.error("Connection failed: " + error.message);
+        message.error("Connection failed. Please try again.");
       }
     }
   };
@@ -228,7 +263,6 @@ const DataSharing = () => {
 
       // Set up transfer timeout
       const transferTimeout = setTimeout(() => {
-        message.error("Transfer timed out. The peer might be disconnected.");
         setSendLoading(false);
         setFileList([]);
       }, 30000); // 30 seconds timeout
@@ -249,16 +283,22 @@ const DataSharing = () => {
 
       setFileList([]); // Clear file list after successful send
       message.success(`File sent successfully: ${file.name}`);
-    } catch (err) {
+    } catch (error) {
       // Check if peer is still connected
       const isConnected = await PeerConnection.isPeerConnected(
         connection.selectedId
       );
       if (!isConnected) {
-        message.error("Peer disconnected during transfer");
         dispatch(connectionAction.removePeer(connection.selectedId));
+        // Redirect to offline sharing
+        navigate("/offline-sharing", {
+          state: {
+            targetPeerId: connection.selectedId,
+            targetUsername: "Unknown User",
+          },
+        });
       } else {
-        message.error(err.message || "Failed to send file");
+        message.error("Failed to send file. Please try again.");
       }
     } finally {
       setSendLoading(false);
@@ -306,9 +346,10 @@ const DataSharing = () => {
                 />
                 <Button
                   onClick={handleConnectOtherPeer}
+                  disabled={!connection.id || !peer.id}
                   loading={connection.loading}
                 >
-                  Connect
+                  Connect to Peer
                 </Button>
               </Space>
             </Card>

@@ -10,9 +10,6 @@ export const DataType = {
 let peer; // Peer instance
 let connectionMap = new Map(); // To manage peer connections
 
-// Store received files temporarily
-const receivedFiles = new Map();
-
 // Add a Set to track files being processed
 const processingFiles = new Set();
 
@@ -83,13 +80,11 @@ export const PeerConnection = {
 
         peer.on("open", (id) => {
           console.log("Connected with ID:", id);
-          message.success("Connected successfully!");
           resolve(id);
         });
 
         peer.on("error", (err) => {
-          console.error("Peer error:", err);
-          message.error("Connection error: " + err.message);
+          // console.error("Peer error:", err);
           reject(err);
         });
       } catch (err) {
@@ -113,19 +108,48 @@ export const PeerConnection = {
         reject(new Error("Not connected"));
         return;
       }
+
+      // Set a timeout to detect connection attempts that hang
+      const connectionTimeout = setTimeout(() => {
+        reject(new Error("OFFLINE_PEER"));
+      }, 2000); // 2 second timeout
+
       try {
+        console.log(`Attempting to connect to peer: ${id}`);
         const conn = peer.connect(id, { reliable: true });
+
         conn.on("open", () => {
+          console.log(`Connection to peer ${id} established successfully`);
+          clearTimeout(connectionTimeout);
           connectionMap.set(id, conn);
-          message.success("Connected to peer: " + id);
           resolve();
         });
 
         conn.on("error", (err) => {
-          message.error("Connection error: " + err.message);
-          reject(err);
+          console.error(`Connection error with peer ${id}:`, err);
+          clearTimeout(connectionTimeout);
+
+          // Check if this is an offline peer error
+          if (
+            err.type === "peer-unavailable" ||
+            err.message?.includes("Could not connect to peer") ||
+            err.message?.includes("not open")
+          ) {
+            reject(new Error("OFFLINE_PEER"));
+          } else {
+            reject(err);
+          }
+        });
+
+        // Also listen for the connection to close during connection attempt
+        conn.on("close", () => {
+          console.log(`Connection to peer ${id} closed while connecting`);
+          clearTimeout(connectionTimeout);
+          reject(new Error("OFFLINE_PEER"));
         });
       } catch (err) {
+        console.error(`Exception during connection to peer ${id}:`, err);
+        clearTimeout(connectionTimeout);
         reject(err);
       }
     }),
@@ -133,7 +157,6 @@ export const PeerConnection = {
   onIncomingConnection: (callback) => {
     peer?.on("connection", (conn) => {
       connectionMap.set(conn.peer, conn);
-      message.info("Incoming connection from: " + conn.peer);
       callback(conn);
     });
   },
@@ -143,7 +166,6 @@ export const PeerConnection = {
     if (conn) {
       conn.on("close", () => {
         connectionMap.delete(id);
-        message.info("Disconnected from: " + id);
         callback();
       });
     }
@@ -158,12 +180,8 @@ export const PeerConnection = {
       }
       try {
         conn.send(data);
-        if (data.dataType === DataType.FILE) {
-          message.success(`Sending file: ${data.fileName}`);
-        }
         resolve();
       } catch (err) {
-        message.error("Failed to send: " + err.message);
         reject(err);
       }
     }),
@@ -197,7 +215,6 @@ export const PeerConnection = {
     if (conn) {
       conn.on("error", (error) => {
         console.error(`Connection error with peer ${id}:`, error);
-        message.error(`Connection error with peer ${id}`);
         callback(error);
       });
     }

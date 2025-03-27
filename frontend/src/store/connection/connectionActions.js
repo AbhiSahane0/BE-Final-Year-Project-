@@ -1,6 +1,5 @@
 import { ConnectionActionType } from "./connectionTypes";
 import { PeerConnection, DataType } from "../../helpers/peer";
-import { message } from "antd";
 import { handleFileDownload } from "../../helpers/fileHandler.jsx";
 
 export const changeConnectionInput = (id) => ({
@@ -36,7 +35,6 @@ export const connectPeer = (id) => {
       await PeerConnection.connectPeer(id);
 
       PeerConnection.onConnectionDisconnected(id, () => {
-        message.info("Connection closed: " + id);
         dispatch(removeConnectionList(id));
       });
 
@@ -49,9 +47,9 @@ export const connectPeer = (id) => {
       dispatch(addConnectionList(id));
       dispatch(setLoading(false));
     } catch (err) {
-      console.error("Connection error:", err);
       dispatch(setLoading(false));
-      message.error("Failed to connect: " + err.message);
+      // Pass the error up to be handled by the component
+      throw err;
     }
   };
 };
