@@ -9,11 +9,12 @@ const messageQueueSchema = new mongoose.Schema({
   fileSize: { type: Number, required: true }, // File size in bytes
   status: {
     type: String,
-    enum: ["pending", "delivered", "failed"],
+    enum: ["pending", "ready", "delivered", "failed"],
     default: "pending",
   },
   attempts: { type: Number, default: 0 }, // Number of delivery attempts
   timestamp: { type: Date, default: Date.now }, // Auto-generated timestamp
+  readyAt: { type: Date }, // When the message was ready for delivery
   deliveredAt: { type: Date }, // When the file was successfully delivered
 });
 

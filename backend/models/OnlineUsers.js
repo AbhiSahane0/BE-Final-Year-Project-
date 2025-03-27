@@ -6,11 +6,10 @@ const onlineUserSchema = new mongoose.Schema({
   email: { type: String, required: true }, // User's email
   status: {
     type: String,
-    enum: ["online", "away", "offline"],
+    enum: ["online", "offline"],
     default: "online",
   },
   lastSeen: { type: Date, default: Date.now }, // Timestamp of last activity
-  socketId: { type: String }, // Socket.io connection ID if applicable
 });
 
 // Index for faster queries
@@ -21,6 +20,33 @@ onlineUserSchema.index({ status: 1, lastSeen: -1 });
 onlineUserSchema.methods.updateLastSeen = function () {
   this.lastSeen = new Date();
   return this.save();
+};
+
+// Static method to mark user as online
+onlineUserSchema.statics.markOnline = async function (userData) {
+  return this.findOneAndUpdate(
+    { peerId: userData.peerId },
+    {
+      peerId: userData.peerId,
+      username: userData.username,
+      email: userData.email,
+      status: "online",
+      lastSeen: new Date(),
+    },
+    { upsert: true, new: true }
+  );
+};
+
+// Static method to mark user as offline
+onlineUserSchema.statics.markOffline = async function (peerId) {
+  return this.findOneAndUpdate(
+    { peerId },
+    {
+      status: "offline",
+      lastSeen: new Date(),
+    },
+    { new: true }
+  );
 };
 
 // Export the schema

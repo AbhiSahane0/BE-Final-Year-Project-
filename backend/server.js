@@ -6,10 +6,16 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const Redis = require("ioredis");
 const nodemailer = require("nodemailer");
-const { pollMessageQueue, POLLING_INTERVAL } = require("./Polling"); // Import polling logic and constants
+const {
+  startPolling,
+  pollMessageQueue,
+  POLLING_INTERVAL,
+} = require("./Polling"); // Import polling logic and constants
 const FormData = require("form-data");
 const fs = require("fs");
 const axios = require("axios");
+const multer = require("multer");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -19,6 +25,65 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const REDIS_URL = process.env.REDIS_URL;
+
+// Configure multer storage for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, "uploads");
+    // Ensure the directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Create a unique filename with original name
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const fileExt = path.extname(file.originalname);
+    cb(null, file.fieldname + "-" + uniqueSuffix + fileExt);
+  },
+});
+
+// File filter function
+const fileFilter = (req, file, cb) => {
+  // List of allowed MIME types
+  const allowedTypes = [
+    // Documents
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+    // Images
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    // Audio
+    "audio/mpeg",
+    "audio/wav",
+    // Video
+    "video/mp4",
+    "video/x-matroska",
+    // Archives
+    "application/zip",
+    "application/x-rar-compressed",
+    "application/x-7z-compressed",
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("File type not allowed"), false);
+  }
+};
+
+// Configure multer upload
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB file size limit
+  },
+  fileFilter: fileFilter,
+});
 
 // Connect to MongoDB Atlas
 mongoose
@@ -334,6 +399,14 @@ app.post("/login", async (req, res) => {
         .json({ error: "Invalid credentials no user found" });
     }
 
+    // Mark user as online immediately
+    await OnlineUsers.markOnline({
+      peerId: user.peerId,
+      username: user.username,
+      email: user.email,
+    });
+    console.log(`🟢 User ${user.username} marked as online after login`);
+
     res.json({
       success: true,
       message: "Login successful",
@@ -432,22 +505,35 @@ app.get("/health", (req, res) => {
 app.get("/api/user/status/:peerId", async (req, res) => {
   try {
     const { peerId } = req.params;
+    console.log(`📊 Checking status for peer: ${peerId}`);
 
     // First check if user exists in database
     const user = await User.findOne({ peerId });
     if (!user) {
+      console.log(`❌ User not found with peerId: ${peerId}`);
       return res.status(404).json({ error: "User not found" });
     }
-
-    // Check if user has an active socket connection
-    const isSocketConnected = activeConnections.has(peerId);
+    console.log(`✅ User found: ${user.username}`);
 
     // Check online status from OnlineUsers collection
     const onlineUser = await OnlineUsers.findOne({ peerId });
+    console.log(
+      `🔍 OnlineUser record:`,
+      onlineUser
+        ? {
+            status: onlineUser.status,
+            lastSeen: onlineUser.lastSeen,
+          }
+        : "No record found"
+    );
 
-    // User is considered online if they have an active socket connection
-    // and their status is 'online' in the database
-    const isOnline = isSocketConnected && onlineUser?.status === "online";
+    // Calculate how recently the user was last seen
+    const timeThreshold = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes ago
+    const isOnline =
+      onlineUser?.status === "online" && onlineUser.lastSeen > timeThreshold;
+
+    console.log(`⏱️ Time threshold: ${timeThreshold.toISOString()}`);
+    console.log(`🟢 Is user online? ${isOnline}`);
 
     return res.json({
       online: isOnline,
@@ -469,9 +555,8 @@ const io = require("socket.io")(server, {
   },
 });
 
-// Map to track active socket connections
-const activeConnections = new Map();
-
+// Keep this for real-time notifications
+// But we won't use it for offline message delivery anymore
 io.on("connection", async (socket) => {
   console.log("🔌 New socket connection");
   let currentUser = null;
@@ -479,21 +564,14 @@ io.on("connection", async (socket) => {
   socket.on("user-online", async (userData) => {
     try {
       currentUser = userData;
-      activeConnections.set(userData.peerId, socket.id);
 
-      // Update or create online user record
-      const onlineUser = await OnlineUsers.findOneAndUpdate(
-        { peerId: userData.peerId },
-        {
-          peerId: userData.peerId,
-          username: userData.username,
-          email: userData.email,
-          status: "online",
-          lastSeen: new Date(),
-          socketId: socket.id,
-        },
-        { upsert: true, new: true }
-      );
+      // Update online status using our model method
+      await OnlineUsers.markOnline({
+        peerId: userData.peerId,
+        username: userData.username,
+        email: userData.email,
+      });
+
       console.log(`✅ User ${userData.username} is now online`);
     } catch (error) {
       console.error("Error updating online status:", error);
@@ -502,13 +580,11 @@ io.on("connection", async (socket) => {
 
   socket.on("heartbeat", async ({ peerId }) => {
     try {
-      if (activeConnections.get(peerId) === socket.id) {
+      if (currentUser && currentUser.peerId === peerId) {
+        // Update last seen timestamp
         await OnlineUsers.findOneAndUpdate(
           { peerId },
-          {
-            lastSeen: new Date(),
-            status: "online",
-          }
+          { lastSeen: new Date() }
         );
       }
     } catch (error) {
@@ -518,15 +594,8 @@ io.on("connection", async (socket) => {
 
   socket.on("user-offline", async ({ peerId }) => {
     try {
-      if (activeConnections.get(peerId) === socket.id) {
-        await OnlineUsers.findOneAndUpdate(
-          { peerId },
-          {
-            status: "offline",
-            lastSeen: new Date(),
-          }
-        );
-        activeConnections.delete(peerId);
+      if (currentUser && currentUser.peerId === peerId) {
+        await OnlineUsers.markOffline(peerId);
         console.log(`User ${peerId} marked as offline`);
       }
     } catch (error) {
@@ -537,18 +606,8 @@ io.on("connection", async (socket) => {
   socket.on("disconnect", async () => {
     try {
       if (currentUser) {
-        const { peerId } = currentUser;
-        if (activeConnections.get(peerId) === socket.id) {
-          await OnlineUsers.findOneAndUpdate(
-            { peerId },
-            {
-              status: "offline",
-              lastSeen: new Date(),
-            }
-          );
-          activeConnections.delete(peerId);
-          console.log(`User ${currentUser.username} disconnected`);
-        }
+        await OnlineUsers.markOffline(currentUser.peerId);
+        console.log(`User ${currentUser.username} disconnected`);
       }
     } catch (error) {
       console.error("Error handling disconnect:", error);
@@ -556,61 +615,173 @@ io.on("connection", async (socket) => {
   });
 });
 
-// Start polling mechanism
-const poll = pollMessageQueue(io);
-setInterval(poll, POLLING_INTERVAL);
+// Start the message queue polling mechanism
+let pollingInterval;
+
+// Start server and polling
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+
+  // Start polling mechanism without Socket.io dependency
+  pollingInterval = startPolling();
+  console.log(
+    `✅ Message queue polling started (every ${
+      POLLING_INTERVAL / 1000
+    } seconds)`
+  );
+
+  // Create uploads directory if it doesn't exist
+  const uploadDir = path.join(__dirname, "uploads");
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log("✅ Created uploads directory");
+  }
+});
 
 // API endpoint to upload file to IPFS and queue for offline delivery
-app.post("/api/share/offline", async (req, res) => {
+app.post("/api/share/offline", upload.single("file"), async (req, res) => {
   try {
-    const { senderPeerId, senderUsername, receiverPeerId, file } = req.body;
+    console.log("📤 Offline sharing request received");
+
+    if (!req.file) {
+      console.log("❌ No file received in request");
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    console.log(
+      `📄 Received file: ${req.file.originalname} (${req.file.size} bytes)`
+    );
+
+    const { senderPeerId, senderUsername, receiverPeerId } = req.body;
+    console.log(`📎 Request details:`, {
+      senderPeerId,
+      senderUsername,
+      receiverPeerId,
+    });
+
+    if (!senderPeerId || !senderUsername || !receiverPeerId) {
+      console.log("❌ Missing required fields:", {
+        senderPeerId,
+        senderUsername,
+        receiverPeerId,
+      });
+      return res.status(400).json({ error: "Missing required fields" });
+    }
 
     // Check if receiver exists
     const receiver = await User.findOne({ peerId: receiverPeerId });
     if (!receiver) {
+      console.log(`❌ Receiver not found with peerId: ${receiverPeerId}`);
       return res.status(404).json({ error: "Receiver not found" });
     }
+    console.log(`✅ Receiver found: ${receiver.username}`);
 
-    // Upload to IPFS using Pinata
-    const formData = new FormData();
-    formData.append("file", fs.createReadStream(file.path));
+    // Check if receiver is currently online
+    const isReceiverOnline = await OnlineUsers.findOne({
+      peerId: receiverPeerId,
+      status: "online",
+    });
 
-    const pinataRes = await axios.post(
-      "https://api.pinata.cloud/pinning/pinFileToIPFS",
-      formData,
-      {
-        maxBodyLength: "Infinity",
-        headers: {
-          "Content-Type": `multipart/form-data; boundary=${formData._boundary}`,
-          Authorization: `Bearer ${process.env.PINATA_API_KEY}`,
-        },
-      }
+    // If receiver is online, we'll still queue the message but with a note
+    if (isReceiverOnline) {
+      console.log(
+        `⚠️ Note: Receiver ${receiverPeerId} is currently online, but using offline sharing`
+      );
+    }
+
+    console.log(
+      `📤 Uploading file to IPFS: ${req.file.originalname} (${req.file.size} bytes)`
     );
 
-    const ipfsHash = pinataRes.data.IpfsHash;
-
-    // Create message queue entry
-    const message = new MessageQueue({
-      senderPeerId,
-      senderUsername,
-      receiverPeerId,
-      ipfsHash,
-      fileName: file.originalname,
-      fileSize: file.size,
+    // Upload to IPFS using Pinata
+    const pinataFormData = new FormData();
+    pinataFormData.append("file", fs.createReadStream(req.file.path), {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
     });
 
-    await message.save();
-
-    // Clean up temporary file
-    fs.unlinkSync(file.path);
-
-    res.json({
-      message: "File queued for delivery",
-      ipfsHash,
+    // Add metadata to help organize files
+    const metadata = JSON.stringify({
+      name: req.file.originalname,
+      sender: senderUsername,
+      receiver: receiverPeerId,
+      timestamp: new Date().toISOString(),
     });
+    pinataFormData.append("pinataMetadata", metadata);
+
+    try {
+      console.log("🔄 Sending request to Pinata...");
+      const pinataResponse = await axios.post(
+        "https://api.pinata.cloud/pinning/pinFileToIPFS",
+        pinataFormData,
+        {
+          maxBodyLength: Infinity,
+          headers: {
+            "Content-Type": `multipart/form-data; boundary=${pinataFormData._boundary}`,
+            Authorization: `Bearer ${process.env.PINATA_API_KEY}`,
+          },
+        }
+      );
+
+      if (!pinataResponse.data || !pinataResponse.data.IpfsHash) {
+        console.log(
+          "❌ Failed to get IPFS hash from Pinata response:",
+          pinataResponse.data
+        );
+        throw new Error("Failed to upload to IPFS");
+      }
+
+      const ipfsHash = pinataResponse.data.IpfsHash;
+      console.log(`✅ File uploaded to IPFS with hash: ${ipfsHash}`);
+
+      // Create message queue entry
+      const message = new MessageQueue({
+        senderPeerId,
+        senderUsername,
+        receiverPeerId,
+        ipfsHash,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+      });
+
+      await message.save();
+      console.log(`✅ Message queued for delivery to ${receiverPeerId}`);
+
+      // Clean up temporary file
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error("Error deleting temp file:", err);
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "File queued for delivery",
+        ipfsHash,
+        ipfsUrl: `https://gateway.pinata.cloud/ipfs/${ipfsHash}`,
+      });
+    } catch (pinataError) {
+      console.error("❌ Error uploading to IPFS:", pinataError.message);
+      console.error(
+        "Error details:",
+        pinataError.response?.data || "No response data"
+      );
+
+      // Clean up temp file
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error("Error deleting temp file:", err);
+      });
+
+      throw new Error(`IPFS upload failed: ${pinataError.message}`);
+    }
   } catch (error) {
     console.error("❌ Error queueing file for delivery:", error);
-    res.status(500).json({ error: "Internal server error" });
+
+    // If there's a file but an error occurred, clean it up
+    if (req.file && req.file.path) {
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error("Error deleting temp file:", err);
+      });
+    }
+
+    res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
 
@@ -618,19 +789,106 @@ app.post("/api/share/offline", async (req, res) => {
 app.get("/api/messages/pending/:peerId", async (req, res) => {
   try {
     const { peerId } = req.params;
+
+    // Mark the user as online when they check for messages
+    await OnlineUsers.markOnline({
+      peerId,
+      username: req.query.username || "Unknown",
+      email: req.query.email || "unknown@example.com",
+    });
+
+    // Get pending messages marked as ready for this user
     const messages = await MessageQueue.find({
       receiverPeerId: peerId,
-      status: "pending",
-    }).sort({ timestamp: -1 });
+      status: "ready",
+    }).sort({ readyAt: -1 });
 
-    res.json(messages);
+    res.json({
+      success: true,
+      count: messages.length,
+      messages: messages,
+    });
   } catch (error) {
     console.error("❌ Error fetching pending messages:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Use server instead of app for listening
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+// API endpoint to mark a message as delivered
+app.post("/api/messages/delivered/:messageId", async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { peerId } = req.body;
+
+    // Find the message
+    const message = await MessageQueue.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    // Verify the receiver is the one marking as delivered
+    if (message.receiverPeerId !== peerId) {
+      return res.status(403).json({ error: "Unauthorized action" });
+    }
+
+    // Update the message status
+    await MessageQueue.findByIdAndUpdate(messageId, {
+      status: "delivered",
+      deliveredAt: new Date(),
+    });
+
+    res.json({
+      success: true,
+      message: "Message marked as delivered",
+    });
+  } catch (error) {
+    console.error("❌ Error marking message as delivered:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Heartbeat endpoint to keep user marked as online
+app.post("/api/user/heartbeat", async (req, res) => {
+  try {
+    const { peerId, username, email } = req.body;
+
+    if (!peerId) {
+      return res.status(400).json({ error: "Peer ID is required" });
+    }
+
+    // Update user's online status and last seen time
+    await OnlineUsers.markOnline({ peerId, username, email });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error updating heartbeat:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Debugging endpoint to check all online users
+app.get("/api/debug/users", async (req, res) => {
+  try {
+    const onlineUsers = await OnlineUsers.find().lean();
+    const users = await User.find().select("username peerId email").lean();
+
+    const result = users.map((user) => {
+      const onlineStatus = onlineUsers.find((ou) => ou.peerId === user.peerId);
+      return {
+        ...user,
+        status: onlineStatus?.status || "unknown",
+        lastSeen: onlineStatus?.lastSeen || null,
+      };
+    });
+
+    res.json({
+      totalUsers: users.length,
+      onlineCount: onlineUsers.filter((u) => u.status === "online").length,
+      users: result,
+    });
+  } catch (error) {
+    console.error("Error in debug endpoint:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });

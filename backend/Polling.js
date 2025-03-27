@@ -9,22 +9,6 @@ const POLLING_INTERVAL = 30 * 1000;
 // Maximum number of delivery attempts
 const MAX_DELIVERY_ATTEMPTS = 5;
 
-// Function to send notification to receiver
-async function notifyReceiver(socketIO, receiverSocketId, message) {
-  try {
-    socketIO.to(receiverSocketId).emit("file-received", {
-      from: message.senderUsername,
-      fileName: message.fileName,
-      fileSize: message.fileSize,
-      ipfsHash: message.ipfsHash,
-      timestamp: message.timestamp,
-    });
-    console.log(`📨 Notification sent to receiver ${message.receiverPeerId}`);
-  } catch (error) {
-    console.error("❌ Error sending notification:", error);
-  }
-}
-
 // Function to check IPFS file availability
 async function checkIPFSFile(ipfsHash) {
   try {
@@ -45,8 +29,8 @@ async function checkIPFSFile(ipfsHash) {
   }
 }
 
-// Main polling function
-const pollMessageQueue = (socketIO) => async () => {
+// Main polling function - no socketIO dependency
+const pollMessageQueue = async () => {
   console.log("🔍 Polling the message queue...");
 
   try {
@@ -69,7 +53,7 @@ const pollMessageQueue = (socketIO) => async () => {
 
       if (onlineUser) {
         console.log(
-          `✅ Receiver ${receiverPeerId} is online. Delivering message...`
+          `✅ Receiver ${receiverPeerId} is online. Processing message...`
         );
 
         // 3️⃣ Verify IPFS file is still available
@@ -86,19 +70,17 @@ const pollMessageQueue = (socketIO) => async () => {
           continue;
         }
 
-        // 4️⃣ Send notification to receiver
-        await notifyReceiver(socketIO, onlineUser.socketId, message);
-
-        // 5️⃣ Update message status
+        // 4️⃣ Mark as ready for delivery
+        // The receiver will fetch this message when they poll for updates
         await MessageQueue.findByIdAndUpdate(_id, {
-          status: "delivered",
-          deliveredAt: new Date(),
+          status: "ready",
+          readyAt: new Date(),
           $inc: { attempts: 1 },
         });
 
-        console.log(`✅ Message ${_id} delivered successfully`);
+        console.log(`✅ Message ${_id} marked as ready for delivery`);
       } else {
-        // 6️⃣ Increment attempt count for offline receivers
+        // 5️⃣ Increment attempt count for offline receivers
         await MessageQueue.findByIdAndUpdate(_id, {
           $inc: { attempts: 1 },
         });
@@ -111,7 +93,7 @@ const pollMessageQueue = (socketIO) => async () => {
       }
     }
 
-    // 7️⃣ Clean up failed messages
+    // 6️⃣ Clean up failed messages
     const failedMessages = await MessageQueue.find({
       status: "pending",
       attempts: { $gte: MAX_DELIVERY_ATTEMPTS },
@@ -125,13 +107,38 @@ const pollMessageQueue = (socketIO) => async () => {
         `❌ Message ${message._id} marked as failed after ${MAX_DELIVERY_ATTEMPTS} attempts`
       );
     }
+
+    // 7️⃣ Clean up old delivered messages (optional)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    await MessageQueue.deleteMany({
+      status: "delivered",
+      deliveredAt: { $lt: thirtyDaysAgo },
+    });
   } catch (error) {
     console.error("⚠️ Error polling message queue:", error);
   }
 };
 
-// Export the polling function factory and constants
+// Start the polling process
+const startPolling = () => {
+  console.log(
+    `🚀 Starting message queue polling (every ${
+      POLLING_INTERVAL / 1000
+    } seconds)`
+  );
+
+  // Run once immediately
+  pollMessageQueue();
+
+  // Then set interval
+  return setInterval(pollMessageQueue, POLLING_INTERVAL);
+};
+
+// Export the polling function and constants
 module.exports = {
+  startPolling,
   pollMessageQueue,
   POLLING_INTERVAL,
   MAX_DELIVERY_ATTEMPTS,
