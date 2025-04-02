@@ -50,33 +50,25 @@ const isFileTypeAllowed = (file) => {
 };
 
 function OfflineDataSharing() {
-  const location = useLocation();
-  const navigate = useNavigate();
   const [fileList, setFileList] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-
+  const navigate = useNavigate();
+  const location = useLocation();
   const { targetPeerId, targetUsername } = location.state || {};
-  const userData = JSON.parse(localStorage.getItem("userData") || "{}");
 
-  if (!targetPeerId) {
-    return (
-      <Card style={{ maxWidth: 600, margin: "50px auto" }}>
-        <Title level={3}>Invalid Access</Title>
-        <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
-          No peer information provided. Please select a peer from the Data
-          Sharing page.
-        </Text>
-        <Button type="primary" onClick={() => navigate("/DataSharing")}>
-          Return to Data Sharing
-        </Button>
-      </Card>
-    );
-  }
+  // Get user data from localStorage
+  const storedUserData = localStorage.getItem("userData") || "{}";
+  const userData = JSON.parse(storedUserData);
 
   const handleUpload = async () => {
     if (fileList.length === 0) {
       message.warning("Please select a file first");
+      return;
+    }
+
+    if (!userData) {
+      message.error("User data not found");
       return;
     }
 
@@ -98,6 +90,14 @@ function OfflineDataSharing() {
       formData.append("senderPeerId", userData.peerId);
       formData.append("senderUsername", userData.username);
       formData.append("receiverPeerId", targetPeerId);
+
+      console.log("Sending file with data:", {
+        senderPeerId: userData.peerId,
+        senderUsername: userData.username,
+        receiverPeerId: targetPeerId,
+        fileName: file.name,
+        fileSize: file.size,
+      });
 
       await axios.post(`${BACKEND_URL}/api/share/offline`, formData, {
         headers: {
@@ -142,6 +142,22 @@ function OfflineDataSharing() {
       setUploading(false);
     }
   };
+
+  // If we don't have targetPeerId, show error
+  if (!targetPeerId) {
+    return (
+      <Card style={{ maxWidth: 600, margin: "50px auto" }}>
+        <Title level={3}>Invalid Access</Title>
+        <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
+          No peer information provided. Please select a peer from the Data
+          Sharing page.
+        </Text>
+        <Button type="primary" onClick={() => navigate("/DataSharing")}>
+          Return to Data Sharing
+        </Button>
+      </Card>
+    );
+  }
 
   return (
     <Card style={{ maxWidth: 600, margin: "50px auto" }}>

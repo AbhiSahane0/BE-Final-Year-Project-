@@ -22,6 +22,7 @@ import {
 import { motion } from "framer-motion";
 
 const { Title, Text, Paragraph } = Typography;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
@@ -64,7 +65,7 @@ const Login = () => {
     try {
       setLoading(true);
       // First login request
-      const response = await axios.post("http://localhost:5000/login", {
+      const response = await axios.post(`${BACKEND_URL}/login`, {
         email: values.email,
         password: values.password,
       });
@@ -72,12 +73,9 @@ const Login = () => {
       if (response.data.success) {
         try {
           // Verify user and get Peer ID
-          const peerResponse = await axios.post(
-            "http://localhost:5000/verify-user",
-            {
-              email: values.email,
-            }
-          );
+          const peerResponse = await axios.post(`${BACKEND_URL}/verify-user`, {
+            email: values.email,
+          });
 
           const peerId = peerResponse.data.peerId;
           console.log("Fetched Peer ID:", peerId);
@@ -88,8 +86,19 @@ const Login = () => {
             username: response.data.username,
             email: values.email,
           };
+
+          // Store as JSON string
           localStorage.setItem("userData", JSON.stringify(userData));
           localStorage.setItem("registered", "true");
+
+          // Verify the data was stored correctly
+          const storedData = localStorage.getItem("userData");
+          const parsedData = JSON.parse(storedData);
+          console.log("Stored user data:", parsedData);
+
+          if (!parsedData.peerId || !parsedData.username) {
+            throw new Error("Failed to store user data correctly");
+          }
 
           // Show success message only after everything is complete
           message.success("Login successful!");
@@ -99,9 +108,12 @@ const Login = () => {
           message.error("Error fetching user details. Please try again.");
           console.error("Peer verification error:", peerError);
         }
+      } else {
+        message.error("Invalid credentials");
       }
     } catch (error) {
-      message.error(error.response?.data?.error || "Login failed");
+      console.error("Login error:", error);
+      message.error("Login failed. Please try again.");
     } finally {
       setLoading(false);
     }

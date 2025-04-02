@@ -213,6 +213,7 @@ const DataSharing = () => {
                 state: {
                   targetPeerId: connection.id,
                   targetUsername: username,
+                  fromDataSharing: true,
                 },
               });
             }, 1500);
@@ -295,6 +296,7 @@ const DataSharing = () => {
           state: {
             targetPeerId: connection.selectedId,
             targetUsername: "Unknown User",
+            fromDataSharing: true,
           },
         });
       } else {

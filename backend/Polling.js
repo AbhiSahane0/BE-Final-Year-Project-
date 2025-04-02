@@ -3,11 +3,10 @@ const MessageQueue = require("./models/MessageQueue");
 const OnlineUsers = require("./models/OnlineUsers");
 const axios = require("axios");
 
-// Polling interval (30 seconds)
-const POLLING_INTERVAL = 30 * 1000;
-
-// Maximum number of delivery attempts
-const MAX_DELIVERY_ATTEMPTS = 5;
+// Constants for polling configuration
+const POLLING_INTERVAL = 30000; // 30 seconds
+const MAX_DELIVERY_ATTEMPTS = 2880; // 24 hours with 30-second intervals
+const MAX_QUEUE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 // Function to check IPFS file availability
 async function checkIPFSFile(ipfsHash) {
@@ -38,6 +37,7 @@ const pollMessageQueue = async () => {
     const messages = await MessageQueue.find({
       status: "pending",
       attempts: { $lt: MAX_DELIVERY_ATTEMPTS },
+      createdAt: { $gt: new Date(Date.now() - MAX_QUEUE_AGE) } // Only process messages less than 24 hours old
     }).sort({ timestamp: 1 });
 
     console.log(`📦 Found ${messages.length} pending messages`);
@@ -93,29 +93,30 @@ const pollMessageQueue = async () => {
       }
     }
 
-    // 6️⃣ Clean up failed messages
+    // 6️⃣ Clean up failed messages and old messages
     const failedMessages = await MessageQueue.find({
-      status: "pending",
-      attempts: { $gte: MAX_DELIVERY_ATTEMPTS },
+      $or: [
+        { status: "pending", attempts: { $gte: MAX_DELIVERY_ATTEMPTS } },
+        { createdAt: { $lt: new Date(Date.now() - MAX_QUEUE_AGE) } }
+      ]
     });
 
     for (const message of failedMessages) {
       await MessageQueue.findByIdAndUpdate(message._id, {
         status: "failed",
+        failedAt: new Date(),
+        failureReason: message.attempts >= MAX_DELIVERY_ATTEMPTS 
+          ? "Maximum delivery attempts reached" 
+          : "Message queue age exceeded"
       });
       console.log(
-        `❌ Message ${message._id} marked as failed after ${MAX_DELIVERY_ATTEMPTS} attempts`
+        `❌ Message ${message._id} marked as failed: ${
+          message.attempts >= MAX_DELIVERY_ATTEMPTS 
+            ? "Maximum delivery attempts reached" 
+            : "Message queue age exceeded"
+        }`
       );
     }
-
-    // 7️⃣ Clean up old delivered messages (optional)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    await MessageQueue.deleteMany({
-      status: "delivered",
-      deliveredAt: { $lt: thirtyDaysAgo },
-    });
   } catch (error) {
     console.error("⚠️ Error polling message queue:", error);
   }
@@ -142,4 +143,5 @@ module.exports = {
   pollMessageQueue,
   POLLING_INTERVAL,
   MAX_DELIVERY_ATTEMPTS,
+  MAX_QUEUE_AGE,
 };
