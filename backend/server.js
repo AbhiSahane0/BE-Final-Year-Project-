@@ -802,6 +802,13 @@ app.get("/api/messages/pending/:peerId", async (req, res) => {
   try {
     const { peerId } = req.params;
 
+    // Mark the user as online when they check for messages
+    await OnlineUsers.markOnline({
+      peerId,
+      username: req.query.username || "Unknown",
+      email: req.query.email || "unknown@example.com",
+    });
+
     // Get pending messages marked as ready for this user
     const messages = await MessageQueue.find({
       receiverPeerId: peerId,
@@ -895,105 +902,5 @@ app.get("/api/debug/users", async (req, res) => {
   } catch (error) {
     console.error("Error in debug endpoint:", error);
     res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// API Endpoint: Update User Online Status
-app.post("/api/user/update-status", async (req, res) => {
-  try {
-    const { peerId, username, email } = req.body;
-    console.log(`📊 Received update-status request:`, {
-      peerId,
-      username,
-      email,
-      body: req.body,
-      headers: req.headers,
-    });
-
-    if (!peerId || !username || !email) {
-      console.log("❌ Missing required fields:", { peerId, username, email });
-      return res.status(400).json({
-        error: "Missing required fields",
-        received: { peerId, username, email },
-      });
-    }
-
-    // Update or create online status
-    const onlineUser = await OnlineUsers.findOneAndUpdate(
-      { peerId },
-      {
-        peerId,
-        username,
-        email,
-        status: "online",
-        lastSeen: new Date(),
-      },
-      { upsert: true, new: true }
-    );
-
-    console.log(`✅ Updated online status for user:`, {
-      username,
-      peerId,
-      status: onlineUser.status,
-      lastSeen: onlineUser.lastSeen,
-    });
-
-    res.json({ success: true, onlineUser });
-  } catch (error) {
-    console.error("❌ Error updating online status:", {
-      error: error.message,
-      stack: error.stack,
-      body: req.body,
-    });
-    res.status(500).json({
-      error: "Failed to update online status",
-      details: error.message,
-    });
-  }
-});
-
-// API Endpoint: Mark User as Offline
-app.post("/api/user/mark-offline", async (req, res) => {
-  try {
-    // Handle both JSON and FormData requests
-    let peerId;
-
-    if (req.is("application/json")) {
-      // Handle JSON request
-      peerId = req.body.peerId;
-    } else if (req.is("multipart/form-data")) {
-      // Handle FormData from sendBeacon
-      peerId = req.body.peerId;
-    } else {
-      // Try to get peerId from body regardless of content type
-      peerId = req.body.peerId;
-    }
-
-    console.log(`📊 Marking user as offline: ${peerId}`);
-
-    if (!peerId) {
-      return res.status(400).json({ error: "Peer ID is required" });
-    }
-
-    // Mark user as offline - use a more direct approach for synchronous requests
-    const result = await OnlineUsers.findOneAndUpdate(
-      { peerId },
-      {
-        status: "offline",
-        lastSeen: new Date(),
-      },
-      { new: true }
-    );
-
-    if (!result) {
-      console.log(`❌ User not found with peerId: ${peerId}`);
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    console.log(`✅ User marked as offline: ${peerId}`);
-    res.json({ success: true, message: "User marked as offline" });
-  } catch (error) {
-    console.error("Error marking user as offline:", error);
-    res.status(500).json({ error: "Failed to mark user as offline" });
   }
 });
