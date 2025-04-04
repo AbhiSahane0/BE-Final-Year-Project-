@@ -17,28 +17,7 @@ class OfflineMessageManager {
    */
   init(userData) {
     this.userData = userData;
-    this.startHeartbeat();
     this.startMessageChecking();
-  }
-
-  /**
-   * Start sending heartbeats to keep user marked as online
-   */
-  startHeartbeat() {
-    // Send heartbeat every minute
-    setInterval(() => {
-      if (!this.userData) return;
-
-      axios
-        .post(`${BACKEND_URL}/api/user/heartbeat`, {
-          peerId: this.userData.peerId,
-          username: this.userData.username,
-          email: this.userData.email,
-        })
-        .catch((err) => {
-          console.error("Error sending heartbeat:", err);
-        });
-    }, 60 * 1000);
   }
 
   /**

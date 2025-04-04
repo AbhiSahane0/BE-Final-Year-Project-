@@ -164,11 +164,14 @@ const Registration = () => {
       console.log("Server response:", response.data);
 
       if (response.data && response.data.peerId) {
-        // Store user data in localStorage
-        localStorage.setItem("username", response.data.username);
-        localStorage.setItem("peerId", response.data.peerId);
+        // Store user data in localStorage as a single JSON object
+        const userData = {
+          peerId: response.data.peerId,
+          username: response.data.username,
+          email: response.data.email,
+        };
+        localStorage.setItem("userData", JSON.stringify(userData));
         localStorage.setItem("registered", "true");
-        localStorage.setItem("email", response.data.email);
 
         message.success("Registration successful!");
 
