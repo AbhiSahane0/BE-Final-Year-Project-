@@ -145,45 +145,18 @@ const DataSharing = () => {
     window.socketManager = socketManager;
 
     // Improved beforeunload event handler
-    const handleBeforeUnload = () => {
-      try {
-        // Get the current peer ID from localStorage
-        const currentPeerId = localStorage.getItem("currentPeerId");
-        if (!currentPeerId) {
-          console.error("❌ No currentPeerId found in localStorage");
-          return;
-        }
-
-        console.log("📊 Found currentPeerId in localStorage:", currentPeerId);
-        console.log("📊 Marking user as offline on tab close:", currentPeerId);
-
-        // Use sendBeacon for more reliable delivery during tab close
-        const data = JSON.stringify({ peerId: currentPeerId });
-        const success = navigator.sendBeacon(
-          `${BACKEND_URL}/api/user/mark-offline`,
-          data
-        );
-
-        if (success) {
-          console.log(
-            "✅ Successfully queued offline status update for tab close"
-          );
-        } else {
-          console.error(
-            "❌ Failed to queue offline status update for tab close"
-          );
-          // Fallback to synchronous XMLHttpRequest if sendBeacon fails
-          const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${BACKEND_URL}/api/user/mark-offline`, false);
-          xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.send(JSON.stringify({ peerId: currentPeerId }));
-          console.log("✅ Used fallback XHR to mark user as offline");
-        }
-      } catch (error) {
-        console.error("❌ Error marking user as offline on tab close:", error);
+    const handleBeforeUnload = (event) => {
+      // Only show alert if there's an active session
+      if (peer.started) {
+        // This is the standard way to show the browser's confirmation dialog
+        event.preventDefault();
+        event.returnValue =
+          "You have an active data sharing session. Are you sure you want to leave?";
+        return event.returnValue;
       }
     };
 
+    // Add the event listener
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
@@ -515,6 +488,12 @@ const DataSharing = () => {
                 Stop
               </Button>
             </Space>
+            <div
+              style={{ marginTop: "10px", color: "red", fontWeight: "bold" }}
+            >
+              ⚠️ Warning: You must click the &quot;Stop&quot; button before
+              closing this tab or leaving the page
+            </div>
           </Card>
           <div hidden={!peer.started}>
             <Card>
