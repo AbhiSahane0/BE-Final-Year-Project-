@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { message } from "antd";
+import Chatbot from "./chatbot";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -460,6 +461,9 @@ function Home() {
           Start Sharing Now
         </Button>
       </motion.div>
+      <Card>
+        <Chatbot />
+      </Card>
     </div>
   );
 }
