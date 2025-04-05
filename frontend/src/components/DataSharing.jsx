@@ -20,7 +20,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import socketManager from "../helpers/socket";
 import offlineMessageManager from "../helpers/offlineMessages.jsx";
-
+import Chatbot from "./chatbot";
 const { Title, Text } = Typography;
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -579,6 +579,9 @@ const DataSharing = () => {
               </Button>
             </Card>
           </div>
+        </Card>
+        <Card>
+          <Chatbot />
         </Card>
       </Col>
     </Row>
