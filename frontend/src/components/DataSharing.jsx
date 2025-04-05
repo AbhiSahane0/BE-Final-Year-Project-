@@ -10,10 +10,6 @@ import {
   Space,
   Typography,
   Upload,
-  notification,
-  Badge,
-  List,
-  Progress,
 } from "antd";
 import { CopyOutlined, UploadOutlined } from "@ant-design/icons";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
@@ -144,20 +140,176 @@ const DataSharing = () => {
       offlineMessageManager.init(userData);
     }
 
+    // Make PeerConnection and socketManager accessible globally for the beforeunload event handler in App.jsx
+    window.PeerConnection = PeerConnection;
+    window.socketManager = socketManager;
+
+    // Improved beforeunload event handler
+    const handleBeforeUnload = (event) => {
+      // Only prevent closing if there's an active session
+      if (peer.started) {
+        const message =
+          "⚠️ You have an active data sharing session. Please click the 'Stop' button to properly close your connection before leaving.";
+        event.preventDefault();
+        event.returnValue = message; // For older browsers
+        return message; // For modern browsers
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
+      // Cleanup function when component unmounts
+      // Get the user data from localStorage
+      const storedUserData = localStorage.getItem("userData");
+      if (!storedUserData) {
+        console.error("❌ No user data found in localStorage");
+        return;
+      }
+
+      const storedUser = JSON.parse(storedUserData);
+      if (!storedUser || !storedUser.peerId) {
+        console.error("❌ No peerId found in user data:", storedUser);
+        return;
+      }
+
+      const currentPeerId = storedUser.peerId;
+      console.log(
+        "📊 Found peerId in localStorage for cleanup:",
+        currentPeerId
+      );
+
+      if (currentPeerId) {
+        try {
+          console.log("📊 Marking user as offline on unmount:", currentPeerId);
+
+          // Use sendBeacon with JSON data for more reliable delivery during unmount
+          const data = JSON.stringify({ peerId: currentPeerId });
+          const success = navigator.sendBeacon(
+            `${BACKEND_URL}/api/user/mark-offline`,
+            data
+          );
+
+          if (success) {
+            console.log(
+              "✅ Successfully queued offline status update for unmount"
+            );
+          } else {
+            // Fallback to axios if sendBeacon fails
+            console.log(
+              "⚠️ sendBeacon failed, trying axios for offline status update"
+            );
+            axios
+              .post(`${BACKEND_URL}/api/user/mark-offline`, {
+                peerId: currentPeerId,
+              })
+              .then(() => {
+                console.log("✅ Successfully marked user as offline via axios");
+              })
+              .catch((err) => {
+                console.error(
+                  "❌ Error marking user as offline via axios:",
+                  err
+                );
+              });
+          }
+        } catch (error) {
+          console.error("❌ Error marking user as offline on unmount:", error);
+        }
+      }
+
       socketManager.disconnect();
       offlineMessageManager.cleanup();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+
+      // Remove global references
+      if (window.PeerConnection === PeerConnection) {
+        delete window.PeerConnection;
+      }
+      if (window.socketManager === socketManager) {
+        delete window.socketManager;
+      }
     };
   }, [connection.selectedId, dispatch]);
 
-  const handleStartSession = () => {
-    dispatch(startPeer());
+  const handleStartSession = async () => {
+    try {
+      // First, update the user's online status in the database
+      if (userData && userData.peerId && userData.username && userData.email) {
+        try {
+          console.log("📤 Sending update-status request with data:", {
+            peerId: userData.peerId,
+            username: userData.username,
+            email: userData.email,
+          });
+
+          const response = await axios.post(
+            `${BACKEND_URL}/api/user/update-status`,
+            {
+              peerId: userData.peerId,
+              username: userData.username,
+              email: userData.email,
+            }
+          );
+
+          console.log("✅ Update status response:", response.data);
+
+          // Store the peerId in localStorage to ensure it's accessible when the tab is closed
+          localStorage.setItem("currentPeerId", userData.peerId);
+          console.log(
+            "✅ Stored currentPeerId in localStorage:",
+            userData.peerId
+          );
+        } catch (error) {
+          console.error("❌ Error updating online status:", {
+            error: error.message,
+            response: error.response?.data,
+            status: error.response?.status,
+          });
+        }
+      } else {
+        console.error("❌ Missing user data:", {
+          userData,
+          hasPeerId: !!userData?.peerId,
+          hasUsername: !!userData?.username,
+          hasEmail: !!userData?.email,
+        });
+      }
+
+      // Then start the peer session
+      dispatch(startPeer());
+    } catch (error) {
+      console.error("Error starting session:", error);
+    }
   };
 
   const handleStopSession = async () => {
-    await PeerConnection.closePeerSession();
-    dispatch(stopPeerSession());
-    socketManager.disconnect();
+    try {
+      // First, mark the user as offline in the database
+      if (userData && userData.peerId) {
+        try {
+          console.log("📊 Marking user as offline:", userData.peerId);
+
+          await axios.post(`${BACKEND_URL}/api/user/mark-offline`, {
+            peerId: userData.peerId,
+          });
+          console.log("✅ Successfully marked user as offline");
+
+          // Remove the peerId from localStorage
+          localStorage.removeItem("currentPeerId");
+          console.log("✅ Removed currentPeerId from localStorage");
+        } catch (error) {
+          console.error("❌ Error marking user as offline:", error);
+        }
+      }
+
+      // Then close the peer session
+      await PeerConnection.closePeerSession();
+      dispatch(stopPeerSession());
+      socketManager.disconnect();
+    } catch (error) {
+      console.error("Error stopping session:", error);
+    }
   };
 
   const handleConnectOtherPeer = async () => {
@@ -300,7 +452,9 @@ const DataSharing = () => {
           },
         });
       } else {
-        message.error("Failed to send file. Please try again.");
+        message.error(
+          `Failed to send file: ${error.message || "Unknown error"}`
+        );
       }
     } finally {
       setSendLoading(false);
@@ -333,6 +487,12 @@ const DataSharing = () => {
                 Stop
               </Button>
             </Space>
+            <div
+              style={{ marginTop: "10px", color: "red", fontWeight: "bold" }}
+            >
+              ⚠️ Warning: You must click the &quot;Stop&quot; button before
+              closing this tab or leaving the page
+            </div>
           </Card>
           <div hidden={!peer.started}>
             <Card>

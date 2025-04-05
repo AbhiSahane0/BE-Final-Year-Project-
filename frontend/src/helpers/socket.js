@@ -33,13 +33,6 @@ class SocketManager {
       console.log("🔌 Connected to Socket.IO server");
       this.connected = true;
       this.reconnectAttempts = 0;
-
-      // Emit user online status
-      this.socket.emit("user-online", {
-        peerId: userData.peerId,
-        username: userData.username,
-        email: userData.email,
-      });
     });
 
     this.socket.on("disconnect", () => {
@@ -68,7 +61,7 @@ class SocketManager {
     this.socket.on("connect_error", (error) => {
       console.error("Socket connection error:", error);
       this.reconnectAttempts++;
-      
+
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         message.error("Failed to connect to notification server");
         this.disconnect();
@@ -89,7 +82,7 @@ class SocketManager {
       if (this.connected && this.currentUser) {
         this.socket.emit("user-offline", { peerId: this.currentUser });
       }
-      
+
       this.socket.disconnect();
       this.socket = null;
       this.connected = false;
