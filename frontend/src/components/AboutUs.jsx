@@ -129,6 +129,11 @@ const AboutUs = () => {
                 borderRadius: 12,
                 boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
               }}
+              styles={{
+                body: {
+                  padding: "24px",
+                },
+              }}
             >
               <Paragraph
                 style={{
