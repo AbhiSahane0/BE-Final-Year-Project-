@@ -10,7 +10,6 @@ import {
   InfoCircleOutlined,
   MailOutlined,
 } from "@ant-design/icons";
-import { message } from "antd";
 
 const { Header } = Layout;
 const { Title } = Typography;
@@ -113,13 +112,12 @@ const Navbar = () => {
             justifyContent: "flex-end",
             backgroundColor: "transparent",
           }}
-        >
-          {menuItems.map((item) => (
-            <Menu.Item key={item.key} icon={item.icon}>
-              <Link to={handleNavigation(item.key)}>{item.label}</Link>
-            </Menu.Item>
-          ))}
-        </Menu>
+          items={menuItems.map((item) => ({
+            key: item.key,
+            icon: item.icon,
+            label: <Link to={handleNavigation(item.key)}>{item.label}</Link>,
+          }))}
+        />
       )}
 
       {/* Mobile Menu Button */}
@@ -167,23 +165,22 @@ const Navbar = () => {
         onClose={closeDrawer}
         open={visible}
         width={250}
-        bodyStyle={{ padding: 0 }}
-        headerStyle={{
-          padding: "16px 24px",
-          borderBottom: "1px solid #f0f0f0",
+        styles={{
+          body: { padding: 0 },
+          header: {
+            padding: "16px 24px",
+            borderBottom: "1px solid #f0f0f0",
+          },
         }}
       >
         <Menu
           mode="vertical"
           selectedKeys={[location.pathname]}
           style={{ border: "none" }}
-        >
-          {menuItems.map((item) => (
-            <Menu.Item
-              key={item.key}
-              icon={item.icon}
-              style={{ height: "50px", display: "flex", alignItems: "center" }}
-            >
+          items={menuItems.map((item) => ({
+            key: item.key,
+            icon: item.icon,
+            label: (
               <Link
                 to={handleNavigation(item.key)}
                 onClick={handleMenuClick}
@@ -191,9 +188,10 @@ const Navbar = () => {
               >
                 {item.label}
               </Link>
-            </Menu.Item>
-          ))}
-        </Menu>
+            ),
+            style: { height: "50px", display: "flex", alignItems: "center" },
+          }))}
+        />
       </Drawer>
     </Header>
   );

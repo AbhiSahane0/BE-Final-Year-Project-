@@ -10,10 +10,11 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { message } from "antd";
+import Chatbot from "./chatbot";
 
 const { Title, Text, Paragraph } = Typography;
 
-const MotionCard = motion(Card);
+const MotionCard = motion.create(Card);
 
 function Home() {
   const navigate = useNavigate();
@@ -258,24 +259,24 @@ function Home() {
 
       {/* Features Section */}
       <Row
-        gutter={[isMobile ? 16 : 32, isMobile ? 16 : 32]}
+        gutter={[isMobile ? 16 : 32, isMobile ? 24 : 48]}
         style={{ marginTop: "20px" }}
       >
         {features.map((feature, index) => (
-          <Col xs={24} sm={12} lg={6} key={index}>
+          <Col xs={24} sm={12} md={6} key={index}>
             <MotionCard
               hoverable
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.7 + index * 0.1 }}
               style={{
                 height: "100%",
                 textAlign: "center",
                 borderRadius: "12px",
-                overflow: "hidden",
-                boxShadow: "0 10px 20px rgba(0,0,0,0.05)",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
               }}
-              bodyStyle={{ padding: isMobile ? "20px 15px" : "30px 20px" }}
+              styles={{
+                body: {
+                  padding: isMobile ? "16px" : "24px",
+                },
+              }}
             >
               <motion.div
                 whileHover={{ scale: 1.05 }}
@@ -460,6 +461,9 @@ function Home() {
           Start Sharing Now
         </Button>
       </motion.div>
+      <Card>
+        <Chatbot />
+      </Card>
     </div>
   );
 }
